@@ -1,0 +1,15 @@
+[Unit]
+Description=Temperature Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/car-logger/server
+EnvironmentFile=/opt/car-logger/server/.env
+ExecStart=/opt/car-logger/server/.venv/bin/python -m temp_monitor.main
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

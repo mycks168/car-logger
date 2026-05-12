@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>温度グラフ</title>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <!-- Chart.js 日時軸アダプター -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; display: flex; flex-direction: column; height: 100dvh; background: #0f172a; color: #f8fafc; }
+
+    header {
+      background: #1e293b;
+      padding: 10px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; white-space: nowrap; }
+
+    nav a {
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 0.85rem;
+      padding: 4px 10px;
+      border-radius: 4px;
+    }
+    nav a:hover { background: #334155; color: #f8fafc; }
+    nav a.active { background: #0ea5e9; color: #fff; }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+    .controls label { font-size: 0.8rem; color: #94a3b8; white-space: nowrap; }
+    .controls input[type="datetime-local"] {
+      background: #334155;
+      border: 1px solid #475569;
+      color: #f8fafc;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 0.85rem;
+    }
+    .controls input[type="datetime-local"]:focus { outline: 2px solid #38bdf8; }
+
+    button {
+      background: #0ea5e9;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 16px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:hover { background: #0284c7; }
+    button:disabled { background: #475569; cursor: default; }
+
+    #status { font-size: 0.8rem; color: #94a3b8; white-space: nowrap; }
+    #status.error { color: #f87171; }
+    #status.ok    { color: #4ade80; }
+
+    .chart-area {
+      flex: 1;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .chart-wrap {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+    }
+
+    /* 統計テーブル */
+    .stats {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .stat-card {
+      background: #1e293b;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 0.8rem;
+      min-width: 160px;
+    }
+    .stat-card .name { color: #94a3b8; margin-bottom: 4px; }
+    .stat-card .vals { display: flex; gap: 12px; }
+    .stat-card .val  { font-size: 1rem; font-weight: 600; }
+    .stat-card .val span { font-size: 0.7rem; color: #64748b; margin-left: 2px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Car Logger</h1>
+  <nav>
+    <a href="/">GPS軌跡</a>
+    <a href="/temperature" class="active">温度グラフ</a>
+  </nav>
+  <div class="controls">
+    <label>開始</label>
+    <input type="datetime-local" id="start" />
+    <label>終了</label>
+    <input type="datetime-local" id="end" />
+    <button id="search-btn" onclick="search()">表示</button>
+    <button onclick="setToday()">今日</button>
+    <button onclick="setLast24h()">直近24時間</button>
+    <span id="status"></span>
+  </div>
+</header>
+
+<div class="chart-area">
+  <div class="chart-wrap">
+    <canvas id="chart"></canvas>
+  </div>
+  <div class="stats" id="stats"></div>
+</div>
+
+<script>
+// ---- 色パレット（センサー数分） ----
+const PALETTE = [
+  '#38bdf8', '#f97316', '#4ade80', '#facc15',
+  '#e879f9', '#f87171', '#a78bfa', '#34d399',
+];
+
+// ---- 日時ユーティリティ ----
+function toLocalISO(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function setToday() {
+  const now = new Date();
+  document.getElementById('start').value = toLocalISO(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
+  document.getElementById('end').value   = toLocalISO(now);
+}
+
+function setLast24h() {
+  const now = new Date();
+  document.getElementById('start').value = toLocalISO(new Date(now - 24 * 3600 * 1000));
+  document.getElementById('end').value   = toLocalISO(now);
+}
+
+setLast24h();
+
+// ---- Chart.js 初期化 ----
+const ctx = document.getElementById('chart').getContext('2d');
+let chart = new Chart(ctx, {
+  type: 'line',
+  data: { datasets: [] },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: {
+        labels: { color: '#cbd5e1', font: { size: 12 } },
+      },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} °C`,
+        },
+      },
+    },
+    scales: {
+      x: {
+        type: 'time',
+        time: { tooltipFormat: 'yyyy/MM/dd HH:mm', displayFormats: { minute: 'HH:mm', hour: 'MM/dd HH:mm', day: 'MM/dd' } },
+        ticks: { color: '#64748b', maxRotation: 0 },
+        grid:  { color: '#1e293b' },
+      },
+      y: {
+        title: { display: true, text: '温度 (°C)', color: '#94a3b8' },
+        ticks: { color: '#64748b', callback: v => v + ' °C' },
+        grid:  { color: '#1e293b' },
+      },
+    },
+  },
+});
+
+// ---- 検索 ----
+async function search() {
+  const start  = document.getElementById('start').value;
+  const end    = document.getElementById('end').value;
+  const status = document.getElementById('status');
+  const btn    = document.getElementById('search-btn');
+
+  if (!start || !end) { setStatus('開始・終了日時を入力してください', 'error'); return; }
+
+  btn.disabled = true;
+  setStatus('読み込み中…', '');
+
+  try {
+    const res  = await fetch(`/api/temperature?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+    const data = await res.json();
+    if (data.error) { setStatus(data.error, 'error'); return; }
+
+    drawChart(data.sensors, data.sensor_map);
+    setStatus(`${data.count} 件のデータを表示`, 'ok');
+  } catch (e) {
+    setStatus('通信エラー: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---- グラフ描画 ----
+function drawChart(sensors, sensorMap) {
+  const sensorIds = Object.keys(sensors);
+
+  const datasets = sensorIds.map((sid, i) => {
+    const name  = sensorMap[sid] || sid;
+    const color = PALETTE[i % PALETTE.length];
+    const points = sensors[sid].map(p => ({
+      x: new Date(p.t),
+      y: p.c,
+    }));
+    return {
+      label: name,
+      data: points,
+      borderColor: color,
+      backgroundColor: color + '22',
+      borderWidth: 2,
+      pointRadius: points.length > 200 ? 0 : 3,
+      tension: 0.3,
+    };
+  });
+
+  chart.data.datasets = datasets;
+  chart.update();
+
+  drawStats(sensors, sensorMap);
+}
+
+// ---- 統計カード ----
+function drawStats(sensors, sensorMap) {
+  const el = document.getElementById('stats');
+  el.innerHTML = '';
+
+  Object.entries(sensors).forEach(([sid, points], i) => {
+    if (!points.length) return;
+    const vals  = points.map(p => p.c);
+    const min   = Math.min(...vals).toFixed(1);
+    const max   = Math.max(...vals).toFixed(1);
+    const avg   = (vals.reduce((a,b) => a+b, 0) / vals.length).toFixed(1);
+    const name  = sensorMap[sid] || sid;
+    const color = PALETTE[i % PALETTE.length];
+
+    el.insertAdjacentHTML('beforeend', `
+      <div class="stat-card">
+        <div class="name" style="color:${color}">${name}</div>
+        <div class="vals">
+          <div class="val">${min}<span>°C 最低</span></div>
+          <div class="val">${avg}<span>°C 平均</span></div>
+          <div class="val">${max}<span>°C 最高</span></div>
+        </div>
+      </div>
+    `);
+  });
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+</script>
+
+</body>
+</html>

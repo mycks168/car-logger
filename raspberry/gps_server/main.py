@@ -135,6 +135,46 @@ def get_gps() -> JSONResponse:
     })
 
 
+@app.get("/temperatures")
+def get_temperatures() -> JSONResponse:
+    """
+    接続されている全DS18B20センサーの温度を返す。
+
+    /sys/bus/w1/devices/28-*/w1_slave を読んで値を取得する。
+    読み取りに失敗したセンサーは error フィールドを返す。
+    """
+    import glob
+
+    W1_BASE = "/sys/bus/w1/devices"
+    sensor_dirs = glob.glob(f"{W1_BASE}/28-*")
+
+    sensors = []
+    for path in sorted(sensor_dirs):
+        sensor_id = path.split("/")[-1]
+        slave_file = f"{path}/w1_slave"
+        try:
+            raw = open(slave_file).read()
+            # w1_slave の形式:
+            # 50 05 4b 46 7f ff 0c 10 1c : crc=1c YES
+            # 50 05 4b 46 7f ff 0c 10 1c t=21250
+            if "YES" not in raw:
+                sensors.append({"id": sensor_id, "temperature_c": None, "error": "CRC error"})
+                continue
+            t_line = [l for l in raw.splitlines() if "t=" in l]
+            if not t_line:
+                sensors.append({"id": sensor_id, "temperature_c": None, "error": "t= not found"})
+                continue
+            temp_raw = int(t_line[0].split("t=")[1].strip())
+            sensors.append({"id": sensor_id, "temperature_c": round(temp_raw / 1000, 2), "error": None})
+        except Exception as e:
+            sensors.append({"id": sensor_id, "temperature_c": None, "error": str(e)})
+
+    return JSONResponse({
+        "sensors": sensors,
+        "read_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
 @app.get("/health")
 def health() -> JSONResponse:
     return JSONResponse({"status": "ok"})

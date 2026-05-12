@@ -1,25 +1,28 @@
 # car-logger
 
-車両盗難防止用GPSロガー。ラズパイ3にGPSモジュールを接続し、サーバからTailscale経由でGPS座標を定期取得する。GPS情報が取れなくなった場合はSlackへ最終既知位置を地図リンク付きで通知する。
+車両盗難防止用GPSロガー＋車内温度モニタリングシステム。ラズパイ3にGPSモジュールとDS18B20温度センサー（最大6台）を接続し、サーバからTailscale経由でデータを定期取得する。GPS情報が取れなくなった場合はSlackへ最終既知位置を地図リンク付きで通知する。
 
 ## システム構成
 
 ```
-[GPS module]
-     │ UART/USB
+[GPS module] + [DS18B20 x6 (1-wire)]
+     │ UART/USB + /sys/bus/w1/devices/
 [Raspberry Pi 3]
      │ iPhone USBテザリング (インターネット)
      │ Tailscale VPN
 [サーバ]
-     │ Slack Incoming Webhook
-[Slack]
+     ├─ GPS監視 → Slack Incoming Webhook
+     ├─ GPS履歴 → data/gps_history.db
+     ├─ 温度履歴 → data/temp_history.db
+     └─ WebUI (GPS軌跡 + 温度グラフ)
 ```
 
 | コンポーネント | 役割 |
 |---|---|
-| `raspberry/` | ラズパイ上で動作するGPS APIサーバ |
-| `server/gps_monitor/` | サーバ上で動作する監視・通知プロセス + GPS履歴をSQLiteへ保存 |
-| `server/gps_web/` | GPS軌跡をブラウザで地図表示するWebUI |
+| `raspberry/` | ラズパイ上で動作するGPS + 温度 APIサーバ |
+| `server/gps_monitor/` | GPS監視・Slack通知 + GPS履歴をSQLiteへ保存 |
+| `server/temp_monitor/` | 温度定期取得・SQLiteへ保存 |
+| `server/gps_web/` | GPS軌跡・温度グラフ表示WebUI |
 
 ## 通知ロジック
 
@@ -127,26 +130,48 @@ nano .env  # 下記の必須項目を設定
 # 依存パッケージをインストール
 uv sync
 
-# GPS監視プロセスを起動（バックグラウンドでSQLiteに履歴を蓄積する）
+# GPS監視プロセスを起動
 uv run python -m gps_monitor.main
 
-# 地図WebUIを起動（別ターミナルで）
+# 温度監視プロセスを起動（別ターミナルで）
+uv run python -m temp_monitor.main
+
+# 地図・温度グラフWebUIを起動（別ターミナルで）
 uv run python -m gps_web.main
 # ブラウザで http://localhost:8081 を開く
+#   / → GPS軌跡
+#   /temperature → 温度グラフ
+```
+
+#### センサーマッピングの設定
+
+`server/sensor_map.json` を作成してセンサーIDと場所名を対応付ける。
+
+```bash
+cp sensor_map.json.example sensor_map.json
+nano sensor_map.json
+```
+
+センサーIDの確認:
+```bash
+# ラズパイ上で実行
+ls /sys/bus/w1/devices/28-*
+# または
+curl http://100.x.x.x:8080/temperatures | python3 -m json.tool
 ```
 
 #### systemdサービスとして登録（自動起動）
 
 ```bash
-# GPS監視サービス
-sudo cp gps-monitor.service /etc/systemd/system/
-sudo cp gps-web.service     /etc/systemd/system/
+sudo cp gps-monitor.service  /etc/systemd/system/
+sudo cp temp-monitor.service /etc/systemd/system/
+sudo cp gps-web.service      /etc/systemd/system/
 # ユーザ名や配置パスが異なる場合はサービスファイルを編集
 
 sudo systemctl daemon-reload
-sudo systemctl enable gps-monitor gps-web
-sudo systemctl start  gps-monitor gps-web
-sudo systemctl status gps-monitor gps-web
+sudo systemctl enable gps-monitor temp-monitor gps-web
+sudo systemctl start  gps-monitor temp-monitor gps-web
+sudo systemctl status gps-monitor temp-monitor gps-web
 ```
 
 ## APIリファレンス（ラズパイ側）
@@ -201,12 +226,15 @@ sudo systemctl status gps-monitor gps-web
 
 | 変数名 | デフォルト | 説明 |
 |---|---|---|
+| `RASPI_BASE_URL` | （必須） | ラズパイのベースURL（温度取得に使用） |
 | `RASPI_GPS_URL` | （必須） | ラズパイの GPS API URL |
 | `SLACK_WEBHOOK_URL` | （必須） | Slack Incoming Webhook URL |
-| `POLL_INTERVAL_SECONDS` | `60` | ポーリング間隔（秒） |
+| `POLL_INTERVAL_SECONDS` | `60` | GPS ポーリング間隔（秒） |
+| `TEMP_POLL_INTERVAL_SECONDS` | `300` | 温度ポーリング間隔（秒） |
 | `NOTIFY_COOLDOWN_SECONDS` | `1800` | 同一位置での再通知抑制時間（秒） |
 | `NOTIFY_MOVE_THRESHOLD_M` | `200` | 即時再通知する移動距離の閾値（メートル） |
 | `REQUEST_TIMEOUT_SECONDS` | `15` | ラズパイへのリクエストタイムアウト（秒） |
+| `WEB_PORT` | `8081` | WebUIのポート |
 
 ### ラズパイ側（`raspberry/.env`）
 
@@ -224,8 +252,11 @@ sudo systemctl status gps-monitor gps-web
 # ラズパイ側
 sudo journalctl -u gps-server -f
 
-# サーバ側（監視プロセス）
+# サーバ側（GPS監視）
 sudo journalctl -u gps-monitor -f
+
+# サーバ側（温度監視）
+sudo journalctl -u temp-monitor -f
 
 # サーバ側（WebUI）
 sudo journalctl -u gps-web -f
@@ -240,25 +271,33 @@ car-logger/
 │   ├── gps-server.service  # systemdユニットファイル
 │   └── gps_server/
 │       ├── __init__.py
-│       └── main.py         # FastAPI + gpsd GPS APIサーバ
+│       └── main.py         # FastAPI GPS + 温度 APIサーバ
 ├── server/                 # サーバ側
 │   ├── pyproject.toml
-│   ├── gps-monitor.service # systemdユニットファイル（監視プロセス）
-│   ├── gps-web.service     # systemdユニットファイル（WebUI）
+│   ├── sensor_map.json.example  # センサーID⇔場所名マッピングのサンプル
+│   ├── gps-monitor.service      # systemdユニットファイル（GPS監視）
+│   ├── temp-monitor.service     # systemdユニットファイル（温度監視）
+│   ├── gps-web.service          # systemdユニットファイル（WebUI）
 │   ├── data/
 │   │   ├── state.json      # 監視状態（最終既知位置・通知状態）
-│   │   └── gps_history.db  # GPS位置履歴（SQLite）
+│   │   ├── gps_history.db  # GPS位置履歴（SQLite）
+│   │   └── temp_history.db # 温度履歴（SQLite）
 │   ├── gps_monitor/
 │   │   ├── __init__.py
-│   │   ├── main.py         # ポーリング・通知メインループ
+│   │   ├── main.py         # GPS ポーリング・通知メインループ
 │   │   ├── db.py           # SQLite GPS履歴の保存・取得
 │   │   ├── notify.py       # Slack通知
 │   │   └── state.py        # 監視状態の永続化
+│   ├── temp_monitor/
+│   │   ├── __init__.py
+│   │   ├── main.py         # 温度ポーリング・DBへ保存
+│   │   └── db.py           # SQLite 温度履歴の保存・取得
 │   └── gps_web/
 │       ├── __init__.py
-│       ├── main.py         # FastAPI 地図WebUI + 軌跡APIサーバ
+│       ├── main.py         # FastAPI WebUI（GPS軌跡 + 温度グラフ）
 │       └── templates/
-│           └── index.html  # Leaflet.js 地図UI
+│           ├── index.html        # Leaflet.js GPS軌跡UI
+│           └── temperature.html  # Chart.js 温度グラフUI
 ├── .env.example            # 環境変数のサンプル
 └── README.md
 ```
@@ -282,3 +321,10 @@ car-logger/
 1. `server/data/state.json` を確認し、`last_notified_at` を見てクールダウン中でないか確認する
 2. Webhook URLが正しいか確認する
 3. サーバ側のログでエラーがないか確認する
+
+### 温度センサーが表示されない
+
+1. ラズパイで `ls /sys/bus/w1/devices/28-*` を実行してデバイスが見えるか確認する
+2. `curl http://<ラズパイIP>:8080/temperatures` でAPIのレスポンスを確認する
+3. `RASPI_BASE_URL` が正しく設定されているか確認する（`RASPI_GPS_URL` とは別の変数）
+4. センサー名を設定するには `server/sensor_map.json.example` をコピーして `sensor_map.json` を作成する
