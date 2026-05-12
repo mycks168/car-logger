@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+dist/
+*.egg-info/
+
+# uv
+.python-version
+
+# 環境変数（秘密情報を含むため必ずignore）
+.env
+.env.local
+
+# 監視状態ファイル（ランタイムデータ）
+server/data/
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db

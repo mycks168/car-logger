@@ -1,0 +1,16 @@
+[Unit]
+Description=GPS Server
+After=network.target gpsd.service
+Wants=gpsd.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/car-logger/raspberry
+EnvironmentFile=/home/pi/car-logger/raspberry/.env
+ExecStart=/home/pi/car-logger/raspberry/.venv/bin/python -m gps_server.main
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
