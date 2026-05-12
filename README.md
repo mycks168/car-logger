@@ -18,7 +18,8 @@
 | コンポーネント | 役割 |
 |---|---|
 | `raspberry/` | ラズパイ上で動作するGPS APIサーバ |
-| `server/` | サーバ上で動作する監視・通知プロセス |
+| `server/gps_monitor/` | サーバ上で動作する監視・通知プロセス + GPS履歴をSQLiteへ保存 |
+| `server/gps_web/` | GPS軌跡をブラウザで地図表示するWebUI |
 
 ## 通知ロジック
 
@@ -123,22 +124,29 @@ nano .env  # 下記の必須項目を設定
 | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | `https://hooks.slack.com/...` |
 
 ```bash
-# 依存パッケージをインストールして起動
+# 依存パッケージをインストール
 uv sync
+
+# GPS監視プロセスを起動（バックグラウンドでSQLiteに履歴を蓄積する）
 uv run python -m gps_monitor.main
+
+# 地図WebUIを起動（別ターミナルで）
+uv run python -m gps_web.main
+# ブラウザで http://localhost:8081 を開く
 ```
 
 #### systemdサービスとして登録（自動起動）
 
 ```bash
+# GPS監視サービス
 sudo cp gps-monitor.service /etc/systemd/system/
+sudo cp gps-web.service     /etc/systemd/system/
 # ユーザ名や配置パスが異なる場合はサービスファイルを編集
-sudo nano /etc/systemd/system/gps-monitor.service
 
 sudo systemctl daemon-reload
-sudo systemctl enable gps-monitor
-sudo systemctl start gps-monitor
-sudo systemctl status gps-monitor
+sudo systemctl enable gps-monitor gps-web
+sudo systemctl start  gps-monitor gps-web
+sudo systemctl status gps-monitor gps-web
 ```
 
 ## APIリファレンス（ラズパイ側）
@@ -216,8 +224,11 @@ sudo systemctl status gps-monitor
 # ラズパイ側
 sudo journalctl -u gps-server -f
 
-# サーバ側
+# サーバ側（監視プロセス）
 sudo journalctl -u gps-monitor -f
+
+# サーバ側（WebUI）
+sudo journalctl -u gps-web -f
 ```
 
 ## ディレクトリ構造
@@ -232,12 +243,22 @@ car-logger/
 │       └── main.py         # FastAPI + gpsd GPS APIサーバ
 ├── server/                 # サーバ側
 │   ├── pyproject.toml
-│   ├── gps-monitor.service # systemdユニットファイル
-│   └── gps_monitor/
+│   ├── gps-monitor.service # systemdユニットファイル（監視プロセス）
+│   ├── gps-web.service     # systemdユニットファイル（WebUI）
+│   ├── data/
+│   │   ├── state.json      # 監視状態（最終既知位置・通知状態）
+│   │   └── gps_history.db  # GPS位置履歴（SQLite）
+│   ├── gps_monitor/
+│   │   ├── __init__.py
+│   │   ├── main.py         # ポーリング・通知メインループ
+│   │   ├── db.py           # SQLite GPS履歴の保存・取得
+│   │   ├── notify.py       # Slack通知
+│   │   └── state.py        # 監視状態の永続化
+│   └── gps_web/
 │       ├── __init__.py
-│       ├── main.py         # ポーリング・通知メインループ
-│       ├── notify.py       # Slack通知
-│       └── state.py        # 監視状態の永続化
+│       ├── main.py         # FastAPI 地図WebUI + 軌跡APIサーバ
+│       └── templates/
+│           └── index.html  # Leaflet.js 地図UI
 ├── .env.example            # 環境変数のサンプル
 └── README.md
 ```

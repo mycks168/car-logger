@@ -23,6 +23,7 @@ from typing import NamedTuple
 import httpx
 from dotenv import load_dotenv
 
+from gps_monitor import db
 from gps_monitor.notify import send_alert, send_recovery
 from gps_monitor.state import MonitorState, load_state, now_iso, parse_iso, save_state
 
@@ -156,6 +157,14 @@ def _run_once(state: MonitorState) -> MonitorState:
 
     if gps.has_fix:
         logger.info("GPS取得成功: lat=%.6f, lon=%.6f", available_lat, available_lon)
+        db.insert(
+            recorded_at=state.last_known_at or now_iso(),
+            lat=available_lat,
+            lon=available_lon,
+            alt=None,
+            speed_kmh=None,
+            has_fix=True,
+        )
         # アラートから復帰した場合
         if state.is_alerting:
             send_recovery(SLACK_WEBHOOK_URL, available_lat, available_lon)
@@ -194,6 +203,7 @@ def _run_once(state: MonitorState) -> MonitorState:
 
 
 def main() -> None:
+    db.init_db()
     logger.info(
         "GPS監視を開始します (ポーリング間隔: %d秒, クールダウン: %d秒, 移動閾値: %.0fm)",
         POLL_INTERVAL_SECONDS,

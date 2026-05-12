@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GPS Track Viewer</title>
+
+  <!-- Leaflet.js -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; display: flex; flex-direction: column; height: 100dvh; }
+
+    header {
+      background: #1e293b;
+      color: #f8fafc;
+      padding: 10px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; white-space: nowrap; }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+    .controls label { font-size: 0.8rem; color: #94a3b8; white-space: nowrap; }
+    .controls input[type="datetime-local"] {
+      background: #334155;
+      border: 1px solid #475569;
+      color: #f8fafc;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 0.85rem;
+    }
+    .controls input[type="datetime-local"]:focus { outline: 2px solid #38bdf8; }
+
+    button {
+      background: #0ea5e9;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 16px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:hover { background: #0284c7; }
+    button:disabled { background: #475569; cursor: default; }
+
+    #status {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+    #status.error { color: #f87171; }
+    #status.ok    { color: #4ade80; }
+
+    #map { flex: 1; }
+
+    /* ポップアップ */
+    .point-popup { font-size: 0.85rem; line-height: 1.6; }
+    .point-popup .no-fix { color: #f87171; font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>GPS Track Viewer</h1>
+  <div class="controls">
+    <label>開始</label>
+    <input type="datetime-local" id="start" />
+    <label>終了</label>
+    <input type="datetime-local" id="end" />
+    <button id="search-btn" onclick="search()">表示</button>
+    <button onclick="setToday()">今日</button>
+    <button onclick="setLast24h()">直近24時間</button>
+    <span id="status"></span>
+  </div>
+</header>
+
+<div id="map"></div>
+
+<script>
+// ---- 地図初期化 ----
+const map = L.map('map').setView([35.6812, 139.7671], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19,
+}).addTo(map);
+
+let trackLayer = null;
+let markerLayer = null;
+
+// ---- 最新位置を取得して初期表示位置に使う ----
+fetch('/api/latest')
+  .then(r => r.json())
+  .then(data => {
+    if (data.point) {
+      map.setView([data.point.lat, data.point.lon], 14);
+    }
+  });
+
+// ---- 日時ユーティリティ ----
+function toLocalISO(d) {
+  // datetime-local 用の "YYYY-MM-DDTHH:MM" 文字列に変換（ローカル時刻）
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function setToday() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
+  document.getElementById('start').value = toLocalISO(start);
+  document.getElementById('end').value = toLocalISO(now);
+}
+
+function setLast24h() {
+  const now = new Date();
+  const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  document.getElementById('start').value = toLocalISO(start);
+  document.getElementById('end').value = toLocalISO(now);
+}
+
+// ---- 初期値: 直近24時間 ----
+setLast24h();
+
+// ---- 軌跡検索 ----
+async function search() {
+  const start = document.getElementById('start').value;
+  const end   = document.getElementById('end').value;
+  const status = document.getElementById('status');
+  const btn = document.getElementById('search-btn');
+
+  if (!start || !end) {
+    setStatus('開始・終了日時を入力してください', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  setStatus('読み込み中…', '');
+
+  try {
+    const res = await fetch(`/api/track?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+    const data = await res.json();
+
+    if (data.error) {
+      setStatus(data.error, 'error');
+      return;
+    }
+
+    drawTrack(data.points);
+    setStatus(`${data.count} 件のデータを表示`, 'ok');
+  } catch (e) {
+    setStatus('通信エラー: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---- 地図描画 ----
+function drawTrack(points) {
+  // 既存レイヤーを削除
+  if (trackLayer) { map.removeLayer(trackLayer); trackLayer = null; }
+  if (markerLayer) { map.removeLayer(markerLayer); markerLayer = null; }
+
+  if (points.length === 0) {
+    setStatus('該当するデータがありません', '');
+    return;
+  }
+
+  const latlngs = points.map(p => [p.lat, p.lon]);
+
+  // 軌跡ライン
+  trackLayer = L.polyline(latlngs, { color: '#0ea5e9', weight: 3, opacity: 0.8 }).addTo(map);
+
+  // マーカーグループ（クリックでポップアップ）
+  markerLayer = L.layerGroup().addTo(map);
+
+  // 始点・終点は大きいマーカー、途中は小さいサークル
+  points.forEach((p, i) => {
+    const isFirst = i === 0;
+    const isLast  = i === points.length - 1;
+    const jstTime = toJSTString(p.recorded_at);
+    const popup = buildPopup(p, jstTime);
+
+    if (isFirst || isLast) {
+      const color = isFirst ? '#22c55e' : '#ef4444';
+      const label = isFirst ? 'S' : 'E';
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="background:${color};color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)">${label}</div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+      L.marker([p.lat, p.lon], { icon }).bindPopup(popup).addTo(markerLayer);
+    } else {
+      const color = p.has_fix ? '#0ea5e9' : '#f97316';
+      L.circleMarker([p.lat, p.lon], {
+        radius: 4, color, fillColor: color, fillOpacity: 0.9, weight: 1,
+      }).bindPopup(popup).addTo(markerLayer);
+    }
+  });
+
+  map.fitBounds(trackLayer.getBounds(), { padding: [24, 24] });
+}
+
+function buildPopup(p, jstTime) {
+  const fixBadge = p.has_fix ? '' : '<span class="no-fix">⚠ キャッシュ値</span><br>';
+  const alt   = p.alt      != null ? `${p.alt.toFixed(1)} m`   : '—';
+  const speed = p.speed_kmh != null ? `${p.speed_kmh.toFixed(1)} km/h` : '—';
+  return `<div class="point-popup">
+    ${fixBadge}
+    <b>${jstTime}</b><br>
+    緯度: ${p.lat.toFixed(6)}<br>
+    経度: ${p.lon.toFixed(6)}<br>
+    高度: ${alt}<br>
+    速度: ${speed}
+  </div>`;
+}
+
+function toJSTString(isoUtc) {
+  try {
+    const d = new Date(isoUtc);
+    return d.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+  } catch {
+    return isoUtc;
+  }
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+</script>
+
+</body>
+</html>
