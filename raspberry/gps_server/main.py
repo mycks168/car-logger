@@ -149,6 +149,15 @@ def get_temperatures() -> JSONResponse:
     sensor_dirs = glob.glob(f"{W1_BASE}/28-*")
 
     sensors = []
+
+    # CPU温度
+    try:
+        cpu_raw = int(open("/sys/class/thermal/thermal_zone0/temp").read().strip())
+        sensors.append({"id": "cpu", "temperature_c": round(cpu_raw / 1000, 2), "error": None})
+    except Exception as e:
+        sensors.append({"id": "cpu", "temperature_c": None, "error": str(e)})
+
+    # DS18B20センサー
     for path in sorted(sensor_dirs):
         sensor_id = path.split("/")[-1]
         slave_file = f"{path}/w1_slave"

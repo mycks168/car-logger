@@ -1,4 +1,5 @@
 {
+  "cpu": "ラズパイCPU",
   "28-xxxxxxxxxxxx": "車内フロント左",
   "28-yyyyyyyyyyyy": "車内フロント右",
   "28-zzzzzzzzzzzz": "車内リア左",
