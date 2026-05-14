@@ -1,20 +1,21 @@
 # car-logger
 
-車両盗難防止用GPSロガー＋車内温度モニタリングシステム。ラズパイ3にGPSモジュールとDS18B20温度センサー（最大6台）を接続し、サーバからTailscale経由でデータを定期取得する。GPS情報が取れなくなった場合はSlackへ最終既知位置を地図リンク付きで通知する。
+車両盗難防止用GPSロガー＋車内温度モニタリングシステム。ラズパイ3にGPSモジュールとDS18B20温度センサー（最大6台）を接続し、サーバからTailscale経由でデータを定期取得する。GPS情報が取れなくなった場合はSlackへ最終既知位置を地図リンク付きで通知する。WiFiスキャン＋Google Geolocation APIによる位置補完にも対応。
 
 ## システム構成
 
 ```
 [GPS module] + [DS18B20 x6 (1-wire)]
      │ UART/USB + /sys/bus/w1/devices/
-[Raspberry Pi 3]
+[Raspberry Pi 3] ─── wlan0 WiFiスキャン
      │ iPhone USBテザリング (インターネット)
      │ Tailscale VPN
 [サーバ]
      ├─ GPS監視 → Slack Incoming Webhook
      ├─ GPS履歴 → data/gps_history.db
      ├─ 温度履歴 → data/temp_history.db
-     └─ WebUI (GPS軌跡 + 温度グラフ)
+     ├─ WiFi測位 → Google Geolocation API → data/gps_history.db
+     └─ WebUI (GPS軌跡 + WiFi測位 + 温度グラフ)
 ```
 
 | コンポーネント | 役割 |
@@ -46,8 +47,10 @@ GPS取得失敗（ラズパイオフライン or GPS補足不可）
 |---|---|
 | ラズパイ | `gpsd` インストール済み、GPS モジュール接続済み |
 | ラズパイ | Tailscale 設定済み、`uv` インストール済み |
+| ラズパイ | `wlan0` が利用可能（WiFi測位を使う場合） |
 | サーバ | Tailscale 設定済み、`uv` インストール済み |
 | Slack | Incoming Webhook URL 取得済み |
+| Google Cloud | Geolocation API 有効化・APIキー取得済み（WiFi測位を使う場合） |
 
 ### ラズパイ側セットアップ
 
@@ -95,6 +98,18 @@ curl http://localhost:8080/gps
 curl http://localhost:8080/health
 ```
 
+#### WiFiスキャンの sudo 設定（WiFi測位を使う場合）
+
+`iwlist` はデフォルトで root 権限が必要なため、パスワードなしで実行できるよう設定する。
+
+```bash
+echo "pi ALL=(ALL) NOPASSWD: /sbin/iwlist" | sudo tee /etc/sudoers.d/iwlist
+sudo chmod 440 /etc/sudoers.d/iwlist
+
+# 動作確認
+sudo iwlist wlan0 scan
+```
+
 #### systemdサービスとして登録（自動起動）
 
 ```bash
@@ -123,8 +138,10 @@ nano .env  # 下記の必須項目を設定
 
 | 変数名 | 説明 | 例 |
 |---|---|---|
-| `RASPI_GPS_URL` | ラズパイのTailscale IP + ポート | `http://100.x.x.x:8080/gps` |
+| `RASPI_BASE_URL` | ラズパイのベースURL | `http://100.x.x.x:8080` |
+| `RASPI_GPS_URL` | ラズパイの GPS API URL | `http://100.x.x.x:8080/gps` |
 | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | `https://hooks.slack.com/...` |
+| `GOOGLE_GEOLOCATION_API_KEY` | Google Geolocation APIキー（WiFi測位を使う場合） | `AIzaSy...` |
 
 ```bash
 # 依存パッケージをインストール
@@ -215,6 +232,8 @@ sudo systemctl status gps-monitor temp-monitor gps-web
 | `lat`, `lon` | 最終既知位置（`has_fix=false` の場合もキャッシュを返す） |
 | `last_fix_at` | 最後にGPSを補足した時刻 |
 | `cache_age_seconds` | `last_fix_at` からの経過秒数 |
+| `wifi_aps` | WiFiスキャン結果（`[{"macAddress": "...", "signalStrength": -65}, ...]`） |
+| `wifi_scanned_at` | 最後にWiFiスキャンした時刻 |
 
 ### `GET /health`
 
@@ -229,8 +248,10 @@ sudo systemctl status gps-monitor temp-monitor gps-web
 | `RASPI_BASE_URL` | （必須） | ラズパイのベースURL（温度取得に使用） |
 | `RASPI_GPS_URL` | （必須） | ラズパイの GPS API URL |
 | `SLACK_WEBHOOK_URL` | （必須） | Slack Incoming Webhook URL |
+| `GOOGLE_GEOLOCATION_API_KEY` | （任意） | Google Geolocation APIキー（未設定時はWiFi測位スキップ） |
 | `POLL_INTERVAL_SECONDS` | `60` | GPS ポーリング間隔（秒） |
 | `TEMP_POLL_INTERVAL_SECONDS` | `300` | 温度ポーリング間隔（秒） |
+| `GEOLOCATION_INTERVAL_SECONDS` | `300` | Geolocation API 呼び出し間隔（秒） |
 | `NOTIFY_COOLDOWN_SECONDS` | `1800` | 同一位置での再通知抑制時間（秒） |
 | `NOTIFY_MOVE_THRESHOLD_M` | `200` | 即時再通知する移動距離の閾値（メートル） |
 | `REQUEST_TIMEOUT_SECONDS` | `15` | ラズパイへのリクエストタイムアウト（秒） |
@@ -245,6 +266,8 @@ sudo systemctl status gps-monitor temp-monitor gps-web
 | `API_HOST` | `0.0.0.0` | APIサーバのバインドアドレス |
 | `API_PORT` | `8080` | APIサーバのポート |
 | `CACHE_MAX_AGE_SECONDS` | `86400` | GPS未取得時にキャッシュを無効化するまでの秒数 |
+| `WIFI_IFACE` | `wlan0` | WiFiスキャンに使うインターフェース名 |
+| `WIFI_SCAN_INTERVAL_SECONDS` | `300` | WiFiスキャン間隔（秒） |
 
 ## ログの確認
 
@@ -279,8 +302,8 @@ car-logger/
 │   ├── temp-monitor.service     # systemdユニットファイル（温度監視）
 │   ├── gps-web.service          # systemdユニットファイル（WebUI）
 │   ├── data/
-│   │   ├── state.json      # 監視状態（最終既知位置・通知状態）
-│   │   ├── gps_history.db  # GPS位置履歴（SQLite）
+│   │   ├── state.json      # 監視状態（最終既知位置・通知状態・最終Geolocation呼び出し時刻）
+│   │   ├── gps_history.db  # GPS位置履歴 + WiFi測位履歴（SQLite）
 │   │   └── temp_history.db # 温度履歴（SQLite）
 │   ├── gps_monitor/
 │   │   ├── __init__.py
@@ -328,3 +351,13 @@ car-logger/
 2. `curl http://<ラズパイIP>:8080/temperatures` でAPIのレスポンスを確認する
 3. `RASPI_BASE_URL` が正しく設定されているか確認する（`RASPI_GPS_URL` とは別の変数）
 4. センサー名を設定するには `server/sensor_map.json.example` をコピーして `sensor_map.json` を作成する
+
+### WiFi測位が表示されない
+
+1. `GOOGLE_GEOLOCATION_API_KEY` が設定されているか確認する
+2. ラズパイで `sudo iwlist wlan0 scan` が実行できるか確認する
+3. `/etc/sudoers.d/iwlist` の設定が正しいか確認する（「WiFiスキャンの sudo 設定」参照）
+4. `server/data/gps_history.db` の `geolocation_log` テーブルにデータがあるか確認する:
+   ```bash
+   sqlite3 server/data/gps_history.db "SELECT * FROM geolocation_log LIMIT 5;"
+   ```
