@@ -68,7 +68,7 @@ def _run_once() -> None:
         return
 
     db.insert_many(read_at, readings)
-    summary = ", ".join(f"{sid.split('-')[1][:6]}={t}°C" for sid, t in readings)
+    summary = ", ".join(f"{sid.split('-')[-1][:6]}={t}°C" for sid, t in readings)
     logger.info("温度を記録しました (%d件): %s", len(readings), summary)
 
 
