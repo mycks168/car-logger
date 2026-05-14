@@ -28,6 +28,9 @@ class MonitorState:
     # 現在アラート中かどうか（復帰を検知するため）
     is_alerting: bool = False
 
+    # 最後にGoogle Geolocation APIを呼び出した時刻
+    last_geolocation_at: str | None = None
+
 
 def load_state() -> MonitorState:
     if not STATE_FILE.exists():

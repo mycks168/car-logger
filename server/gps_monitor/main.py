@@ -47,12 +47,13 @@ def _require_env(name: str) -> str:
 RASPI_GPS_URL = _require_env("RASPI_GPS_URL")           # 例: http://100.x.x.x:8080/gps
 SLACK_WEBHOOK_URL = _require_env("SLACK_WEBHOOK_URL")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
-# アラート後、同一位置での再通知を抑制する時間（秒）
 NOTIFY_COOLDOWN_SECONDS = int(os.getenv("NOTIFY_COOLDOWN_SECONDS", str(30 * 60)))
-# この距離（メートル）以上移動していたら即時通知する
 NOTIFY_MOVE_THRESHOLD_M = float(os.getenv("NOTIFY_MOVE_THRESHOLD_M", "200"))
-# ラズパイへのリクエストタイムアウト（秒）
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
+GOOGLE_GEOLOCATION_API_KEY = os.getenv("GOOGLE_GEOLOCATION_API_KEY", "")
+GEOLOCATION_INTERVAL_SECONDS = int(os.getenv("GEOLOCATION_INTERVAL_SECONDS", "300"))
+
+_GEOLOCATION_URL = "https://www.googleapis.com/geolocation/v1/geolocate"
 
 
 class GpsResponse(NamedTuple):
@@ -61,6 +62,7 @@ class GpsResponse(NamedTuple):
     lat: float | None
     lon: float | None
     last_fix_at: str | None
+    wifi_aps: list[dict]
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -85,10 +87,67 @@ def _fetch_gps() -> GpsResponse | None:
             lat=data.get("lat"),
             lon=data.get("lon"),
             last_fix_at=data.get("last_fix_at"),
+            wifi_aps=data.get("wifi_aps", []),
         )
     except Exception as e:
         logger.warning("ラズパイへの接続に失敗しました: %s", e)
         return None
+
+
+def _call_geolocation(
+    wifi_aps: list[dict],
+    gps_lat: float | None,
+    gps_lon: float | None,
+    recorded_at: str,
+) -> None:
+    """
+    Google Geolocation APIを呼び出し、結果をDBに保存する。
+    APIキーが未設定、またはWiFi APが0件の場合はスキップする。
+    """
+    if not GOOGLE_GEOLOCATION_API_KEY:
+        logger.debug("GOOGLE_GEOLOCATION_API_KEY が未設定のためGeolocationをスキップします")
+        return
+    if not wifi_aps:
+        logger.warning("WiFi APが0件のためGeolocationをスキップします")
+        return
+
+    try:
+        resp = httpx.post(
+            _GEOLOCATION_URL,
+            params={"key": GOOGLE_GEOLOCATION_API_KEY},
+            json={"wifiAccessPoints": wifi_aps},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        geo_lat = data["location"]["lat"]
+        geo_lon = data["location"]["lng"]
+        accuracy_m = data.get("accuracy")
+
+        distance_m = None
+        if gps_lat is not None and gps_lon is not None:
+            distance_m = round(_haversine_m(gps_lat, gps_lon, geo_lat, geo_lon), 1)
+            logger.info(
+                "Geolocation取得: lat=%.6f, lon=%.6f, accuracy=%.0fm, GPS差=%.0fm",
+                geo_lat, geo_lon, accuracy_m or 0, distance_m,
+            )
+        else:
+            logger.info(
+                "Geolocation取得(GPS無し): lat=%.6f, lon=%.6f, accuracy=%.0fm",
+                geo_lat, geo_lon, accuracy_m or 0,
+            )
+
+        db.insert_geolocation(
+            recorded_at=recorded_at,
+            lat=geo_lat,
+            lon=geo_lon,
+            accuracy_m=accuracy_m,
+            gps_lat=gps_lat,
+            gps_lon=gps_lon,
+            distance_m=distance_m,
+        )
+    except Exception as e:
+        logger.error("Geolocation API呼び出し失敗: %s", e)
 
 
 def _should_notify(state: MonitorState, lat: float, lon: float) -> tuple[bool, str]:
@@ -154,6 +213,21 @@ def _run_once(state: MonitorState) -> MonitorState:
         state.last_known_lat = available_lat
         state.last_known_lon = available_lon
         state.last_known_at = gps.last_fix_at or now_iso()
+
+    # 5分ごとにGeolocation APIを呼び出す（GPS取得成功・失敗問わず）
+    now = datetime.now(timezone.utc)
+    geo_elapsed = (
+        (now - parse_iso(state.last_geolocation_at)).total_seconds()
+        if state.last_geolocation_at else GEOLOCATION_INTERVAL_SECONDS
+    )
+    if geo_elapsed >= GEOLOCATION_INTERVAL_SECONDS and gps is not None:
+        _call_geolocation(
+            wifi_aps=gps.wifi_aps,
+            gps_lat=available_lat,
+            gps_lon=available_lon,
+            recorded_at=now.isoformat(),
+        )
+        state.last_geolocation_at = now.isoformat()
 
     if gps.has_fix:
         logger.info("GPS取得成功: lat=%.6f, lon=%.6f", available_lat, available_lon)

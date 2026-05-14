@@ -96,6 +96,9 @@
     <button id="search-btn" onclick="search()">表示</button>
     <button onclick="setToday()">今日</button>
     <button onclick="setLast24h()">直近24時間</button>
+    <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#94a3b8;cursor:pointer">
+      <input type="checkbox" id="show-geo" checked onchange="toggleGeo()"> WiFi測位
+    </label>
     <span id="status"></span>
   </div>
 </header>
@@ -112,6 +115,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 let trackLayer = null;
 let markerLayer = null;
+let geoLayer = null;
 
 // ---- 最新位置を取得して初期表示位置に使う ----
 fetch('/api/latest')
@@ -162,16 +166,22 @@ async function search() {
   setStatus('読み込み中…', '');
 
   try {
-    const res = await fetch(`/api/track?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
-    const data = await res.json();
+    const qs = `start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+    const [trackRes, geoRes] = await Promise.all([
+      fetch(`/api/track?${qs}`),
+      fetch(`/api/geolocation?${qs}`),
+    ]);
+    const trackData = await trackRes.json();
+    const geoData   = await geoRes.json();
 
-    if (data.error) {
-      setStatus(data.error, 'error');
-      return;
-    }
+    if (trackData.error) { setStatus(trackData.error, 'error'); return; }
 
-    drawTrack(data.points);
-    setStatus(`${data.count} 件のデータを表示`, 'ok');
+    drawTrack(trackData.points);
+    drawGeolocation(geoData.points || []);
+    setStatus(
+      `GPS ${trackData.count}件 / WiFi測位 ${geoData.count ?? 0}件`,
+      'ok',
+    );
   } catch (e) {
     setStatus('通信エラー: ' + e.message, 'error');
   } finally {
@@ -246,6 +256,56 @@ function toJSTString(isoUtc) {
     return d.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
   } catch {
     return isoUtc;
+  }
+}
+
+// ---- WiFi測位マーカー描画 ----
+function drawGeolocation(points) {
+  if (geoLayer) { map.removeLayer(geoLayer); geoLayer = null; }
+  if (!points.length) return;
+
+  geoLayer = L.layerGroup().addTo(map);
+  points.forEach(p => {
+    const jstTime = toJSTString(p.recorded_at);
+    const dist = p.distance_m != null ? `${p.distance_m.toFixed(0)}m` : '—';
+    const acc  = p.accuracy_m != null ? `${p.accuracy_m.toFixed(0)}m` : '—';
+    const popup = `<div class="point-popup">
+      <b style="color:#fb923c">📶 WiFi測位</b><br>
+      <b>${jstTime}</b><br>
+      緯度: ${p.lat.toFixed(6)}<br>
+      経度: ${p.lon.toFixed(6)}<br>
+      推定誤差: ${acc}<br>
+      GPS差: ${dist}
+    </div>`;
+
+    // 誤差円
+    if (p.accuracy_m) {
+      L.circle([p.lat, p.lon], {
+        radius: p.accuracy_m,
+        color: '#fb923c', fillColor: '#fb923c', fillOpacity: 0.08, weight: 1,
+      }).addTo(geoLayer);
+    }
+    // 菱形マーカー
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="width:12px;height:12px;background:#fb923c;transform:rotate(45deg);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`,
+      iconSize: [12, 12],
+      iconAnchor: [6, 6],
+    });
+    L.marker([p.lat, p.lon], { icon }).bindPopup(popup).addTo(geoLayer);
+  });
+
+  if (!document.getElementById('show-geo').checked) {
+    map.removeLayer(geoLayer);
+  }
+}
+
+function toggleGeo() {
+  if (!geoLayer) return;
+  if (document.getElementById('show-geo').checked) {
+    map.addLayer(geoLayer);
+  } else {
+    map.removeLayer(geoLayer);
   }
 }
 

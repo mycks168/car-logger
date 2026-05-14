@@ -87,6 +87,25 @@ def get_latest() -> JSONResponse:
     return JSONResponse({"point": rows[0]})
 
 
+@app.get("/api/geolocation")
+def get_geolocation(
+    start: str = Query(description="開始日時 (datetime-local / JST)"),
+    end: str = Query(description="終了日時 (datetime-local / JST)"),
+) -> JSONResponse:
+    """
+    指定した日時範囲のGeolocation履歴を返す。GPS座標との差も含む。
+    """
+    try:
+        jst = timezone(timedelta(hours=9))
+        start_dt = datetime.fromisoformat(start).replace(tzinfo=jst).astimezone(timezone.utc)
+        end_dt   = datetime.fromisoformat(end).replace(tzinfo=jst).astimezone(timezone.utc)
+    except ValueError as e:
+        return JSONResponse({"error": f"日時の形式が不正です: {e}"}, status_code=400)
+
+    rows = gps_db.query_geolocation(start_dt, end_dt)
+    return JSONResponse({"count": len(rows), "points": rows})
+
+
 # ---- 温度 ----
 
 @app.get("/temperature", response_class=HTMLResponse)
