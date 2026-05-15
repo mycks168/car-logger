@@ -73,6 +73,8 @@ def _gpsd_watcher() -> None:
             for new_data in gps_socket:
                 if new_data:
                     data_stream.unpack(new_data)
+                else:
+                    time.sleep(0.1)
                     lat = getattr(data_stream, "lat", "n/a")
                     lon = getattr(data_stream, "lon", "n/a")
                     mode = getattr(data_stream, "mode", 0)
