@@ -1,6 +1,7 @@
 """
 GPSサーバ - ラズパイ上で動作し、gpsdからGPS座標を取得してHTTP APIで提供する。
 WiFiスキャン結果もキャッシュして /gps レスポンスに含める（Google Geolocation API用）。
+MPU-6050 加速度センサーによる位置Push、USBカメラによる定期撮影も行う。
 """
 
 import logging
@@ -12,6 +13,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from gps3 import agps3
@@ -31,6 +33,25 @@ CACHE_MAX_AGE_SECONDS = int(os.getenv("CACHE_MAX_AGE_SECONDS", str(60 * 60 * 24)
 WIFI_IFACE = os.getenv("WIFI_IFACE", "wlan0")
 # サーバ側のGeolocation呼び出し間隔に合わせて同じ周期でスキャンする
 WIFI_SCAN_INTERVAL_SECONDS = int(os.getenv("WIFI_SCAN_INTERVAL_SECONDS", "300"))
+
+# サーバへのPush設定（未設定の場合はPush機能を無効化）
+PUSH_SERVER_URL = os.getenv("PUSH_SERVER_URL", "")          # 例: http://100.x.x.x:8081
+PUSH_TIMEOUT_SECONDS = float(os.getenv("PUSH_TIMEOUT_SECONDS", "10"))
+
+# MPU-6050 設定
+MPU6050_BUS = int(os.getenv("MPU6050_BUS", "1"))
+MPU6050_ADDR = int(os.getenv("MPU6050_ADDR", "0x68"), 16)
+ACCEL_THRESHOLD_MS2 = float(os.getenv("ACCEL_THRESHOLD_MS2", "0.5"))   # 検知閾値 m/s²
+ACCEL_POLL_INTERVAL_SECONDS = float(os.getenv("ACCEL_POLL_INTERVAL_SECONDS", "0.1"))
+ACCEL_ACTIVE_WINDOW_SECONDS = float(os.getenv("ACCEL_ACTIVE_WINDOW_SECONDS", "30"))
+ACCEL_PUSH_INTERVAL_SECONDS = float(os.getenv("ACCEL_PUSH_INTERVAL_SECONDS", "10"))
+
+# カメラ設定
+CAMERA_DEVICE = int(os.getenv("CAMERA_DEVICE", "0"))
+CAMERA_WIDTH = int(os.getenv("CAMERA_WIDTH", "640"))
+CAMERA_HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
+CAMERA_JPEG_QUALITY = int(os.getenv("CAMERA_JPEG_QUALITY", "75"))
+CAMERA_INTERVAL_SECONDS = int(os.getenv("CAMERA_INTERVAL_SECONDS", "60"))
 
 
 @dataclass
@@ -52,8 +73,15 @@ class WifiState:
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
+@dataclass
+class AccelState:
+    last_detected_at: datetime | None = None  # 最後に加速を検知した時刻
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
 gps_state = GpsState()
 wifi_state = WifiState()
+accel_state = AccelState()
 app = FastAPI(title="GPS Server")
 
 
@@ -137,10 +165,134 @@ def _wifi_scanner() -> None:
         time.sleep(WIFI_SCAN_INTERVAL_SECONDS)
 
 
+def _push_location() -> None:
+    """現在のGPS状態をサーバにPOSTする。GPS座標がない場合はスキップ。"""
+    with gps_state.lock:
+        lat = gps_state.lat
+        lon = gps_state.lon
+        alt = gps_state.alt
+        speed = gps_state.speed
+        has_fix = gps_state.has_fix
+        last_fix_at = gps_state.last_fix_at
+
+    if lat is None or lon is None:
+        logger.debug("GPS座標なし、位置Pushをスキップします")
+        return
+
+    recorded_at = (last_fix_at or datetime.now(timezone.utc)).isoformat()
+    try:
+        httpx.post(
+            f"{PUSH_SERVER_URL}/api/location",
+            json={
+                "lat": lat,
+                "lon": lon,
+                "alt": alt,
+                "speed_kmh": round(speed * 3.6, 1) if speed is not None else None,
+                "has_fix": has_fix,
+                "recorded_at": recorded_at,
+            },
+            timeout=PUSH_TIMEOUT_SECONDS,
+        )
+        logger.debug("位置Push完了: lat=%.6f, lon=%.6f", lat, lon)
+    except Exception as e:
+        logger.warning("位置Push失敗: %s", e)
+
+
+def _mpu6050_watcher() -> None:
+    """MPU-6050 を監視し、加速検知時に accel_state を更新・位置をPushするスレッド。"""
+    from gps_server.mpu6050 import MPU6050
+
+    try:
+        mpu = MPU6050(bus=MPU6050_BUS, addr=MPU6050_ADDR)
+        logger.info("MPU-6050 初期化完了 (bus=%d, addr=0x%02x)", MPU6050_BUS, MPU6050_ADDR)
+    except Exception as e:
+        logger.error("MPU-6050 初期化失敗（スレッド終了）: %s", e)
+        return
+
+    last_push_at: datetime | None = None
+
+    while True:
+        try:
+            magnitude = mpu.dynamic_accel_magnitude()
+            if magnitude >= ACCEL_THRESHOLD_MS2:
+                now = datetime.now(timezone.utc)
+                with accel_state.lock:
+                    accel_state.last_detected_at = now
+
+                # Push間隔が経過していればサーバへ送信
+                if PUSH_SERVER_URL and (
+                    last_push_at is None
+                    or (now - last_push_at).total_seconds() >= ACCEL_PUSH_INTERVAL_SECONDS
+                ):
+                    _push_location()
+                    last_push_at = now
+        except Exception as e:
+            logger.warning("MPU-6050 読み取りエラー: %s", e)
+
+        time.sleep(ACCEL_POLL_INTERVAL_SECONDS)
+
+
+def _camera_worker() -> None:
+    """定期的にUSBカメラで撮影し、サーバにアップロードするスレッド。"""
+    from gps_server.camera import UsbCamera
+
+    try:
+        cam = UsbCamera(
+            device=CAMERA_DEVICE,
+            width=CAMERA_WIDTH,
+            height=CAMERA_HEIGHT,
+            jpeg_quality=CAMERA_JPEG_QUALITY,
+        )
+    except Exception as e:
+        logger.error("カメラ初期化失敗（スレッド終了）: %s", e)
+        return
+
+    while True:
+        time.sleep(CAMERA_INTERVAL_SECONDS)
+        try:
+            jpeg = cam.capture_jpeg()
+            if jpeg is None:
+                continue
+
+            with gps_state.lock:
+                lat = gps_state.lat
+                lon = gps_state.lon
+                alt = gps_state.alt
+
+            recorded_at = datetime.now(timezone.utc).isoformat()
+
+            if PUSH_SERVER_URL:
+                httpx.post(
+                    f"{PUSH_SERVER_URL}/api/photo",
+                    data={
+                        "lat": str(lat) if lat is not None else "",
+                        "lon": str(lon) if lon is not None else "",
+                        "alt": str(alt) if alt is not None else "",
+                        "recorded_at": recorded_at,
+                    },
+                    files={"file": ("photo.jpg", jpeg, "image/jpeg")},
+                    timeout=PUSH_TIMEOUT_SECONDS,
+                )
+                logger.info("写真アップロード完了: lat=%s, lon=%s", lat, lon)
+            else:
+                logger.debug("PUSH_SERVER_URL 未設定のため写真アップロードをスキップします")
+        except Exception as e:
+            logger.warning("カメラ撮影・アップロードエラー: %s", e)
+
+
 @app.on_event("startup")
 def startup_event() -> None:
     threading.Thread(target=_gpsd_watcher, daemon=True).start()
     threading.Thread(target=_wifi_scanner, daemon=True).start()
+    if PUSH_SERVER_URL:
+        threading.Thread(target=_mpu6050_watcher, daemon=True).start()
+        threading.Thread(target=_camera_worker, daemon=True).start()
+        logger.info(
+            "MPU-6050・カメラスレッドを開始しました (push先: %s, カメラ間隔: %d秒)",
+            PUSH_SERVER_URL, CAMERA_INTERVAL_SECONDS,
+        )
+    else:
+        logger.info("PUSH_SERVER_URL 未設定: MPU-6050・カメラ機能は無効です")
     logger.info("GPS・WiFi監視スレッドを開始しました")
 
 

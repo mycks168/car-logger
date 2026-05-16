@@ -8,9 +8,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, File, Form, Query, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from gps_monitor import db as gps_db
 from temp_monitor import db as temp_db
@@ -25,6 +26,7 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 WEB_PORT = int(os.getenv("WEB_PORT", "8081"))
+_PHOTOS_DIR = Path(__file__).parent.parent / "data" / "photos"
 
 # センサーIDと場所名のマッピング（sensor_map.json が存在すれば読み込む）
 _SENSOR_MAP_PATH = Path(__file__).parent.parent / "sensor_map.json"
@@ -42,6 +44,7 @@ def _load_sensor_map() -> dict[str, str]:
 def startup() -> None:
     gps_db.init_db()
     temp_db.init_db()
+    _PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---- GPS ----
@@ -166,6 +169,98 @@ def get_sensor_list() -> JSONResponse:
             for sid in ids
         ]
     })
+
+
+# ---- ラズパイからの位置Push ----
+
+class _LocationPush(BaseModel):
+    lat: float
+    lon: float
+    alt: float | None = None
+    speed_kmh: float | None = None
+    has_fix: bool = True
+    recorded_at: str
+
+
+@app.post("/api/location")
+def push_location(body: _LocationPush) -> JSONResponse:
+    """ラズパイが加速検知時に位置情報をPushするエンドポイント。"""
+    gps_db.insert(
+        recorded_at=body.recorded_at,
+        lat=body.lat,
+        lon=body.lon,
+        alt=body.alt,
+        speed_kmh=body.speed_kmh,
+        has_fix=body.has_fix,
+    )
+    return JSONResponse({"ok": True})
+
+
+# ---- カメラ写真 ----
+
+@app.post("/api/photo")
+async def upload_photo(
+    file: UploadFile = File(...),
+    lat: str = Form(""),
+    lon: str = Form(""),
+    alt: str = Form(""),
+    recorded_at: str = Form(...),
+) -> JSONResponse:
+    """ラズパイが定期的に撮影した静止画をアップロードするエンドポイント。"""
+    lat_val = float(lat) if lat else None
+    lon_val = float(lon) if lon else None
+    alt_val = float(alt) if alt else None
+
+    # タイムスタンプ + ランダムサフィックスでファイル名を生成（衝突回避）
+    try:
+        dt = datetime.fromisoformat(recorded_at)
+        ts = dt.strftime("%Y%m%dT%H%M%SZ")
+    except ValueError:
+        ts = "unknown"
+    suffix = os.urandom(3).hex()
+    filename = f"{ts}_{suffix}.jpg"
+
+    photo_path = _PHOTOS_DIR / filename
+    content = await file.read()
+    photo_path.write_bytes(content)
+
+    photo_id = gps_db.insert_photo(
+        recorded_at=recorded_at,
+        lat=lat_val,
+        lon=lon_val,
+        alt=alt_val,
+        photo_path=filename,
+    )
+    return JSONResponse({"ok": True, "id": photo_id})
+
+
+@app.get("/api/photos")
+def get_photos(
+    start: str = Query(description="開始日時 (datetime-local / JST)"),
+    end: str = Query(description="終了日時 (datetime-local / JST)"),
+) -> JSONResponse:
+    """指定日時範囲のカメラ写真一覧（緯度経度付き）を返す。"""
+    try:
+        jst = timezone(timedelta(hours=9))
+        start_dt = datetime.fromisoformat(start).replace(tzinfo=jst).astimezone(timezone.utc)
+        end_dt   = datetime.fromisoformat(end).replace(tzinfo=jst).astimezone(timezone.utc)
+    except ValueError as e:
+        return JSONResponse({"error": f"日時の形式が不正です: {e}"}, status_code=400)
+
+    rows = gps_db.query_photos(start_dt, end_dt)
+    return JSONResponse({"count": len(rows), "photos": rows})
+
+
+@app.get("/api/photo/{photo_id}")
+def get_photo(photo_id: int) -> FileResponse:
+    """IDに対応する写真ファイルを返す。"""
+    path = gps_db.get_photo_path(photo_id)
+    if path is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    full_path = _PHOTOS_DIR / path
+    if not full_path.exists():
+        return JSONResponse({"error": "file not found"}, status_code=404)
+    return FileResponse(str(full_path), media_type="image/jpeg")
 
 
 if __name__ == "__main__":

@@ -32,6 +32,16 @@ CREATE TABLE IF NOT EXISTS geolocation_log (
     distance_m   REAL            -- GPS座標との距離（メートル）
 );
 CREATE INDEX IF NOT EXISTS idx_geo_recorded_at ON geolocation_log (recorded_at);
+
+CREATE TABLE IF NOT EXISTS camera_photos (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at TEXT NOT NULL,  -- ISO 8601 UTC
+    lat         REAL,           -- 撮影時のGPS緯度（取得できない場合はNULL）
+    lon         REAL,
+    alt         REAL,
+    photo_path  TEXT NOT NULL   -- server/data/photos/ 以下の相対パス
+);
+CREATE INDEX IF NOT EXISTS idx_photo_recorded_at ON camera_photos (recorded_at);
 """
 
 
@@ -121,3 +131,42 @@ def query_geolocation(start: datetime, end: datetime) -> list[dict]:
             (start.isoformat(), end.isoformat()),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def insert_photo(
+    recorded_at: str,
+    lat: float | None,
+    lon: float | None,
+    alt: float | None,
+    photo_path: str,
+) -> int:
+    """カメラ写真を記録しIDを返す。"""
+    with _conn() as con:
+        cur = con.execute(
+            "INSERT INTO camera_photos (recorded_at, lat, lon, alt, photo_path) VALUES (?,?,?,?,?)",
+            (recorded_at, lat, lon, alt, photo_path),
+        )
+        return cur.lastrowid
+
+
+def query_photos(start: datetime, end: datetime) -> list[dict]:
+    """指定した日時範囲のカメラ写真一覧を時刻昇順で返す。"""
+    with _conn() as con:
+        rows = con.execute(
+            """SELECT id, recorded_at, lat, lon, alt
+               FROM camera_photos
+               WHERE recorded_at >= ? AND recorded_at <= ?
+               ORDER BY recorded_at ASC""",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_photo_path(photo_id: int) -> str | None:
+    """IDに対応するphoto_pathを返す。存在しない場合はNone。"""
+    with _conn() as con:
+        row = con.execute(
+            "SELECT photo_path FROM camera_photos WHERE id = ?",
+            (photo_id,),
+        ).fetchone()
+    return row["photo_path"] if row else None
