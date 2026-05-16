@@ -1,0 +1,8 @@
+# /etc/wifi-manager.conf に配置して使う
+# 99-wifi-manager が読み込む設定ファイル
+
+# アクセスポイントとして動くときのSSID
+WIFI_AP_SSID="RasPi-Hotspot"
+
+# アクセスポイントのパスワード（8文字以上）
+WIFI_AP_PASS="raspberry"

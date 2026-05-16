@@ -1,0 +1,100 @@
+#!/bin/bash
+# NetworkManager Dispatcher スクリプト
+# /etc/NetworkManager/dispatcher.d/99-wifi-manager に配置する
+
+IFACE="$1"
+EVENT="$2"
+
+[ "$IFACE" = "wlan0" ] || [ "$IFACE" = "eth1" ] || exit 0
+
+[ -f /etc/wifi-manager.conf ] && source /etc/wifi-manager.conf
+AP_SSID="${WIFI_AP_SSID:-RasPi-Hotspot}"
+AP_PASS="${WIFI_AP_PASS:-raspberry}"
+AP_CON_NAME="wifi-hotspot"
+
+log() { logger -t wifi-manager "$*"; }
+
+# デバイス名からアクティブな接続名を取得
+active_con_for() {
+    nmcli -t -f NAME,DEVICE con show --active 2>/dev/null \
+        | awk -F: -v dev="$1" '$2==dev{print $1; exit}'
+}
+
+setup_route_priority() {
+    local wlan0_con eth1_con
+    wlan0_con=$(active_con_for wlan0)
+    eth1_con=$(active_con_for eth1)
+
+    if [ -n "$wlan0_con" ]; then
+        nmcli connection modify "$wlan0_con" ipv4.route-metric 100 2>/dev/null
+        nmcli device reapply wlan0 2>/dev/null || true
+        log "wlan0($wlan0_con) metric=100（優先）"
+    fi
+
+    if [ -n "$eth1_con" ]; then
+        nmcli connection modify "$eth1_con" ipv4.route-metric 200 2>/dev/null
+        nmcli device reapply eth1 2>/dev/null || true
+        log "eth1($eth1_con) metric=200（フォールバック）"
+    fi
+}
+
+start_ap() {
+    log "APモード起動 (SSID: $AP_SSID)"
+    nmcli con delete "$AP_CON_NAME" 2>/dev/null || true
+    nmcli con add type wifi ifname wlan0 con-name "$AP_CON_NAME" \
+        ssid "$AP_SSID" mode ap \
+        ipv4.method shared \
+        wifi-sec.key-mgmt wpa-psk \
+        wifi-sec.psk "$AP_PASS" \
+        connection.autoconnect no
+    nmcli con up "$AP_CON_NAME"
+    log "APモード起動完了"
+}
+
+stop_ap() {
+    nmcli con down "$AP_CON_NAME" 2>/dev/null || true
+    nmcli con delete "$AP_CON_NAME" 2>/dev/null || true
+}
+
+log "イベント受信: $IFACE $EVENT"
+
+case "$IFACE:$EVENT" in
+    wlan0:up)
+        log "wlan0 up → WiFi優先ルートを設定"
+        stop_ap
+        setup_route_priority
+        ;;
+
+    wlan0:down)
+        sleep 5
+        state=$(cat /sys/class/net/wlan0/operstate 2>/dev/null)
+        if [ "$state" = "up" ]; then
+            log "wlan0 一時的な切断から復帰済み"
+            setup_route_priority
+            exit 0
+        fi
+        # 既存のwlan0プロファイルで再接続を試みる
+        wlan0_con=$(nmcli -t -f NAME,TYPE con show 2>/dev/null \
+            | awk -F: '$2=="wifi"{print $1; exit}')
+        if [ -n "$wlan0_con" ]; then
+            log "wlan0 down → 再接続を試みます ($wlan0_con)"
+            stop_ap
+            if nmcli con up "$wlan0_con" 2>/dev/null; then
+                log "再接続成功"
+                sleep 2
+                setup_route_priority
+            else
+                log "再接続失敗 → APモードへ切り替え"
+                start_ap
+            fi
+        else
+            log "wlan0プロファイル不明 → APモードへ切り替え"
+            start_ap
+        fi
+        ;;
+
+    eth1:up|eth1:down)
+        log "eth1 $EVENT → ルート優先度を再計算"
+        setup_route_priority
+        ;;
+esac
