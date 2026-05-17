@@ -99,6 +99,9 @@
     <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#94a3b8;cursor:pointer">
       <input type="checkbox" id="show-geo" checked onchange="toggleGeo()"> WiFi測位
     </label>
+    <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#94a3b8;cursor:pointer">
+      <input type="checkbox" id="show-photos" checked onchange="togglePhotos()"> カメラ
+    </label>
     <span id="status"></span>
   </div>
 </header>
@@ -116,6 +119,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 let trackLayer = null;
 let markerLayer = null;
 let geoLayer = null;
+let photoLayer = null;
 
 // ---- 最新位置を取得して初期表示位置に使う ----
 fetch('/api/latest')
@@ -167,19 +171,22 @@ async function search() {
 
   try {
     const qs = `start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
-    const [trackRes, geoRes] = await Promise.all([
+    const [trackRes, geoRes, photoRes] = await Promise.all([
       fetch(`/api/track?${qs}`),
       fetch(`/api/geolocation?${qs}`),
+      fetch(`/api/photos?${qs}`),
     ]);
     const trackData = await trackRes.json();
     const geoData   = await geoRes.json();
+    const photoData = await photoRes.json();
 
     if (trackData.error) { setStatus(trackData.error, 'error'); return; }
 
     drawTrack(trackData.points);
     drawGeolocation(geoData.points || []);
+    drawPhotos(photoData.photos || []);
     setStatus(
-      `GPS ${trackData.count}件 / WiFi測位 ${geoData.count ?? 0}件`,
+      `GPS ${trackData.count}件 / WiFi測位 ${geoData.count ?? 0}件 / カメラ ${photoData.count ?? 0}件`,
       'ok',
     );
   } catch (e) {
@@ -306,6 +313,46 @@ function toggleGeo() {
     map.addLayer(geoLayer);
   } else {
     map.removeLayer(geoLayer);
+  }
+}
+
+// ---- カメラ写真マーカー描画 ----
+function drawPhotos(photos) {
+  if (photoLayer) { map.removeLayer(photoLayer); photoLayer = null; }
+  if (!photos.length) return;
+
+  photoLayer = L.layerGroup().addTo(map);
+  photos.forEach(p => {
+    if (p.lat == null || p.lon == null) return;
+    const jstTime = toJSTString(p.recorded_at);
+    const popup = `<div class="point-popup">
+      <b style="color:#a855f7">&#128247; カメラ</b><br>
+      <b>${jstTime}</b><br>
+      <img src="/api/photo/${p.id}" style="max-width:240px;max-height:180px;display:block;margin-top:4px;border-radius:4px;"><br>
+      緯度: ${p.lat.toFixed(6)}<br>
+      経度: ${p.lon.toFixed(6)}
+    </div>`;
+
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="background:#a855f7;width:14px;height:14px;border-radius:3px;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+    L.marker([p.lat, p.lon], { icon }).bindPopup(popup, { maxWidth: 260 }).addTo(photoLayer);
+  });
+
+  if (!document.getElementById('show-photos').checked) {
+    map.removeLayer(photoLayer);
+  }
+}
+
+function togglePhotos() {
+  if (!photoLayer) return;
+  if (document.getElementById('show-photos').checked) {
+    map.addLayer(photoLayer);
+  } else {
+    map.removeLayer(photoLayer);
   }
 }
 
