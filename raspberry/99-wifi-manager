@@ -1,16 +1,14 @@
 #!/bin/bash
 # NetworkManager Dispatcher スクリプト
 # /etc/NetworkManager/dispatcher.d/99-wifi-manager に配置する
+#
+# wlan0（自宅WiFi）を metric 100 で優先し、
+# eth1（iPhoneテザリング）を metric 200 でフォールバックとして使う。
 
 IFACE="$1"
 EVENT="$2"
 
 [ "$IFACE" = "wlan0" ] || [ "$IFACE" = "eth1" ] || exit 0
-
-[ -f /etc/wifi-manager.conf ] && source /etc/wifi-manager.conf
-AP_SSID="${WIFI_AP_SSID:-RasPi-Hotspot}"
-AP_PASS="${WIFI_AP_PASS:-raspberry}"
-AP_CON_NAME="wifi-hotspot"
 
 log() { logger -t wifi-manager "$*"; }
 
@@ -38,30 +36,11 @@ setup_route_priority() {
     fi
 }
 
-start_ap() {
-    log "APモード起動 (SSID: $AP_SSID)"
-    nmcli con delete "$AP_CON_NAME" 2>/dev/null || true
-    nmcli con add type wifi ifname wlan0 con-name "$AP_CON_NAME" \
-        ssid "$AP_SSID" mode ap \
-        ipv4.method shared \
-        wifi-sec.key-mgmt wpa-psk \
-        wifi-sec.psk "$AP_PASS" \
-        connection.autoconnect no
-    nmcli con up "$AP_CON_NAME"
-    log "APモード起動完了"
-}
-
-stop_ap() {
-    nmcli con down "$AP_CON_NAME" 2>/dev/null || true
-    nmcli con delete "$AP_CON_NAME" 2>/dev/null || true
-}
-
 log "イベント受信: $IFACE $EVENT"
 
 case "$IFACE:$EVENT" in
     wlan0:up)
         log "wlan0 up → WiFi優先ルートを設定"
-        stop_ap
         setup_route_priority
         ;;
 
@@ -78,18 +57,13 @@ case "$IFACE:$EVENT" in
             | awk -F: '$2=="wifi"{print $1; exit}')
         if [ -n "$wlan0_con" ]; then
             log "wlan0 down → 再接続を試みます ($wlan0_con)"
-            stop_ap
             if nmcli con up "$wlan0_con" 2>/dev/null; then
                 log "再接続成功"
                 sleep 2
                 setup_route_priority
             else
-                log "再接続失敗 → APモードへ切り替え"
-                start_ap
+                log "再接続失敗（自宅WiFi圏外）"
             fi
-        else
-            log "wlan0プロファイル不明 → APモードへ切り替え"
-            start_ap
         fi
         ;;
 

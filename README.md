@@ -7,7 +7,7 @@
 ```
 [GPS module] + [DS18B20 x6 (1-wire)]
      │ UART/USB + /sys/bus/w1/devices/
-[Raspberry Pi 3] ─── wlan0（自宅WiFi優先 / 圏外時はAPモード）
+[Raspberry Pi 3] ─── wlan0（自宅WiFi優先）
      │ iPhone USBテザリング / eth1（フォールバック回線）
      │ Tailscale VPN
 [サーバ]
@@ -20,15 +20,13 @@
 
 ### WiFiネットワーク切り替え
 
-ラズパイ3のWiFi（wlan0）は以下のルールで自動切り替えされる。
+ラズパイ3のWiFi（wlan0）は NetworkManager Dispatcher（`99-wifi-manager`）が自動制御する。
 
 | 状況 | 動作 |
 |---|---|
-| 自宅WiFi圏内 | wlan0 をクライアントとして接続。デフォルトルートを wlan0 優先（metric 100）に設定 |
-| 自宅WiFi圏外 | wlan0 をアクセスポイントとして起動（他機器がラズパイ経由でネットに出られる） |
+| 自宅WiFi接続中 | wlan0 を優先（metric 100）。WiFiスキャンによるGeolocation補完も有効 |
+| 自宅WiFi圏外 | wlan0 は未接続のままスキャン可能な状態を維持。eth1（iPhoneテザリング）経由でTailscale接続 |
 | eth1（USBテザリング）接続中 | 常時フォールバック回線として利用（metric 200）。WiFiが繋がれば自動的にWiFi優先になる |
-
-切り替えは NetworkManager の Dispatcher（`99-wifi-manager`）がネットワーク状態変化を検知して自動実行する。
 
 | コンポーネント | 役割 |
 |---|---|
@@ -138,22 +136,11 @@ sudo systemctl status gps-server
 #### WiFi自動切り替えのセットアップ
 
 ```bash
-# 設定ファイルを配置（SSIDなどを記入）
-sudo cp wifi-manager.conf.example /etc/wifi-manager.conf
-sudo nano /etc/wifi-manager.conf
-
 # Dispatcher スクリプトを配置
 sudo cp 99-wifi-manager /etc/NetworkManager/dispatcher.d/99-wifi-manager
 sudo chmod +x /etc/NetworkManager/dispatcher.d/99-wifi-manager
 sudo chown root:root /etc/NetworkManager/dispatcher.d/99-wifi-manager
 ```
-
-`/etc/wifi-manager.conf` の設定項目:
-
-| 変数名 | 説明 | 例 |
-|---|---|---|
-| `WIFI_AP_SSID` | APモード時のSSID | `RasPi-Hotspot` |
-| `WIFI_AP_PASS` | APモード時のパスワード（8文字以上） | `raspberry` |
 
 設定後はWiFiを一度OFF→ONにすることで自動切り替えが有効になる。動作ログは `sudo journalctl -t wifi-manager` で確認できる。
 
@@ -326,8 +313,7 @@ car-logger/
 ├── raspberry/              # ラズパイ側
 │   ├── pyproject.toml
 │   ├── gps-server.service         # systemdユニットファイル
-│   ├── 99-wifi-manager            # NetworkManager Dispatcher（WiFi自動切り替え）
-│   ├── wifi-manager.conf.example  # WiFi設定ファイルのサンプル
+│   ├── 99-wifi-manager            # NetworkManager Dispatcher（ルート優先度・WiFi再接続）
 │   └── gps_server/
 │       ├── __init__.py
 │       └── main.py         # FastAPI GPS + 温度 APIサーバ
@@ -391,13 +377,12 @@ car-logger/
 ### WiFi自動切り替えが動かない
 
 1. `sudo journalctl -t wifi-manager --no-pager` でDispatcherのログを確認する
-2. `/etc/wifi-manager.conf` が存在し `WIFI_HOME_SSID` が設定されているか確認する
-3. `/etc/NetworkManager/dispatcher.d/99-wifi-manager` の権限を確認する（root所有・実行権限が必要）:
+2. `/etc/NetworkManager/dispatcher.d/99-wifi-manager` の権限を確認する（root所有・実行権限が必要）:
    ```bash
    ls -la /etc/NetworkManager/dispatcher.d/99-wifi-manager
    # -rwxr-xr-x 1 root root ...  となっていること
    ```
-4. WiFiをOFF→ONして `sudo journalctl -t wifi-manager -f` でイベントが発火するか確認する
+3. WiFiをOFF→ONして `sudo journalctl -t wifi-manager -f` でイベントが発火するか確認する
 
 ### WiFi測位が表示されない
 
