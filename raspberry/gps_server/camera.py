@@ -18,16 +18,23 @@ class UsbCamera:
         width: int = 640,
         height: int = 480,
         jpeg_quality: int = 75,
+        warm_up_frames: int = 3,
     ) -> None:
         import cv2
         self._cv2 = cv2
         self._cap = cv2.VideoCapture(device)
+        # YUYV→BGR変換の色ズレを回避するため MJPEG を優先要求する
+        self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         self._quality = jpeg_quality
 
         if not self._cap.isOpened():
             raise RuntimeError(f"カメラデバイス {device} を開けませんでした")
+
+        # 最初の数フレームは不安定なので読み捨てる
+        for _ in range(warm_up_frames):
+            self._cap.read()
 
         logger.info(
             "カメラ初期化完了: device=%d, %dx%d, quality=%d",
