@@ -78,6 +78,64 @@
     /* ポップアップ */
     .point-popup { font-size: 0.85rem; line-height: 1.6; }
     .point-popup .no-fix { color: #f87171; font-size: 0.75rem; }
+
+    /* ライトボックス */
+    #lightbox {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.92);
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    #lightbox.open { display: flex; }
+    #lb-img {
+      max-width: 90vw; max-height: 80vh;
+      object-fit: contain;
+      border-radius: 6px;
+      display: block;
+      user-select: none;
+    }
+    .lb-btn {
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 52px; height: 52px;
+      font-size: 1.6rem;
+      cursor: pointer;
+      position: absolute;
+      top: 50%; transform: translateY(-50%);
+      transition: background 0.15s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .lb-btn:hover:not(:disabled) { background: rgba(255,255,255,0.28); }
+    .lb-btn:disabled { opacity: 0.2; cursor: default; }
+    #lb-prev { left: 16px; }
+    #lb-next { right: 16px; }
+    #lb-close {
+      position: absolute; top: 14px; right: 16px;
+      background: rgba(255,255,255,0.12);
+      color: #fff; border: none;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 1rem; cursor: pointer;
+      transition: background 0.15s;
+    }
+    #lb-close:hover { background: rgba(255,255,255,0.28); }
+    #lb-info {
+      position: absolute; top: 16px; left: 50%;
+      transform: translateX(-50%);
+      color: #f8fafc; font-size: 0.85rem;
+      text-align: center; white-space: nowrap;
+      pointer-events: none;
+    }
+    #lb-count { color: #94a3b8; margin-left: 10px; }
+    .thumb-click {
+      cursor: zoom-in;
+      transition: opacity 0.1s;
+    }
+    .thumb-click:hover { opacity: 0.85; }
   </style>
 </head>
 <body>
@@ -108,6 +166,17 @@
 
 <div id="map"></div>
 
+<!-- ライトボックス -->
+<div id="lightbox" role="dialog" aria-modal="true" onclick="onLightboxBgClick(event)">
+  <div id="lb-info">
+    <span id="lb-time"></span><span id="lb-count"></span>
+  </div>
+  <button id="lb-close" onclick="closeLightbox()" title="閉じる (Esc)">✕</button>
+  <button class="lb-btn" id="lb-prev" onclick="lightboxStep(-1)" title="前の画像 (←)">&#8249;</button>
+  <img id="lb-img" src="" alt="拡大写真">
+  <button class="lb-btn" id="lb-next" onclick="lightboxStep(1)"  title="次の画像 (→)">&#8250;</button>
+</div>
+
 <script>
 // ---- 地図初期化 ----
 const map = L.map('map').setView([35.6812, 139.7671], 12);
@@ -120,6 +189,10 @@ let trackLayer = null;
 let markerLayer = null;
 let geoLayer = null;
 let photoLayer = null;
+
+// ライトボックス用グローバル状態
+let allPhotos = [];
+let currentPhotoIdx = 0;
 
 // ---- 最新位置を取得して初期表示位置に使う ----
 fetch('/api/latest')
@@ -319,16 +392,21 @@ function toggleGeo() {
 // ---- カメラ写真マーカー描画 ----
 function drawPhotos(photos) {
   if (photoLayer) { map.removeLayer(photoLayer); photoLayer = null; }
+  allPhotos = photos;
   if (!photos.length) return;
 
   photoLayer = L.layerGroup().addTo(map);
-  photos.forEach(p => {
+  photos.forEach((p, idx) => {
     if (p.lat == null || p.lon == null) return;
     const jstTime = toJSTString(p.recorded_at);
     const popup = `<div class="point-popup">
       <b style="color:#a855f7">&#128247; カメラ</b><br>
       <b>${jstTime}</b><br>
-      <img src="/api/photo/${p.id}" style="max-width:240px;max-height:180px;display:block;margin-top:4px;border-radius:4px;"><br>
+      <div style="width:240px;height:180px;margin-top:4px;border-radius:4px;overflow:hidden;background:#0f172a;cursor:zoom-in"
+           onclick="openLightbox(${idx})" title="クリックで拡大">
+        <img src="/api/photo/${p.id}"
+             style="width:100%;height:100%;object-fit:cover;display:block;">
+      </div>
       緯度: ${p.lat.toFixed(6)}<br>
       経度: ${p.lon.toFixed(6)}
     </div>`;
@@ -339,13 +417,56 @@ function drawPhotos(photos) {
       iconSize: [14, 14],
       iconAnchor: [7, 7],
     });
-    L.marker([p.lat, p.lon], { icon }).bindPopup(popup, { maxWidth: 260 }).addTo(photoLayer);
+    L.marker([p.lat, p.lon], { icon }).bindPopup(popup, { maxWidth: 280 }).addTo(photoLayer);
   });
 
   if (!document.getElementById('show-photos').checked) {
     map.removeLayer(photoLayer);
   }
 }
+
+// ---- ライトボックス操作 ----
+function openLightbox(idx) {
+  currentPhotoIdx = idx;
+  updateLightbox();
+  document.getElementById('lightbox').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  map.keyboard.disable();
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+  document.body.style.overflow = '';
+  map.keyboard.enable();
+}
+
+function onLightboxBgClick(e) {
+  // オーバーレイ背景のみクリックで閉じる（画像・ボタンはスルー）
+  if (e.target === document.getElementById('lightbox')) closeLightbox();
+}
+
+function lightboxStep(delta) {
+  const next = currentPhotoIdx + delta;
+  if (next < 0 || next >= allPhotos.length) return;
+  currentPhotoIdx = next;
+  updateLightbox();
+}
+
+function updateLightbox() {
+  const p = allPhotos[currentPhotoIdx];
+  document.getElementById('lb-img').src = `/api/photo/${p.id}`;
+  document.getElementById('lb-time').textContent = toJSTString(p.recorded_at);
+  document.getElementById('lb-count').textContent = ` ${currentPhotoIdx + 1} / ${allPhotos.length}`;
+  document.getElementById('lb-prev').disabled = currentPhotoIdx === 0;
+  document.getElementById('lb-next').disabled = currentPhotoIdx === allPhotos.length - 1;
+}
+
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('lightbox').classList.contains('open')) return;
+  if (e.key === 'Escape')      { closeLightbox(); e.preventDefault(); }
+  if (e.key === 'ArrowLeft')   { lightboxStep(-1); e.preventDefault(); }
+  if (e.key === 'ArrowRight')  { lightboxStep(1);  e.preventDefault(); }
+});
 
 function togglePhotos() {
   if (!photoLayer) return;
