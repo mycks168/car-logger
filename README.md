@@ -1,20 +1,23 @@
 # car-logger
 
-車両盗難防止用GPSロガー＋車内温度モニタリングシステム。ラズパイ3にGPSモジュールとDS18B20温度センサー（最大6台）を接続し、サーバからTailscale経由でデータを定期取得する。GPS情報が取れなくなった場合はSlackへ最終既知位置を地図リンク付きで通知する。WiFiスキャン＋Google Geolocation APIによる位置補完にも対応。
+車両盗難防止用GPSロガー＋車内温度モニタリングシステム。ラズパイ3にGPSモジュールとDS18B20温度センサー（最大6台）を接続し、サーバからTailscale経由でデータを定期取得する。GPS情報が取れなくなった場合はSlackへ最終既知位置を地図リンク付きで通知する。WiFiスキャン＋Google Geolocation APIによる位置補完にも対応。サーバGPUによるカメラ画像解析（YOLO11m + フレーム差分検知）で人物・車両の検知通知も行う。
 
 ## システム構成
 
 ```
-[GPS module] + [DS18B20 x6 (1-wire)]
+[GPS module] + [DS18B20 x6 (1-wire)] + [USBカメラ] + [MPU-6050]
      │ UART/USB + /sys/bus/w1/devices/
 [Raspberry Pi 3] ─── wlan0（自宅WiFi優先）
      │ iPhone USBテザリング / eth1（フォールバック回線）
      │ Tailscale VPN
-[サーバ]
+[サーバ（GPU搭載）]
      ├─ GPS監視 → Slack Incoming Webhook
      ├─ GPS履歴 → data/gps_history.db
      ├─ 温度履歴 → data/temp_history.db
      ├─ WiFi測位 → Google Geolocation API → data/gps_history.db
+     ├─ カメラ画像 → data/photos/ + camera_photos テーブル
+     ├─ 画像解析（GPU） → YOLO11m 人物・車両検知 + フレーム差分検知
+     │        └─ 検知時 → Slack通知（画像添付）
      └─ WebUI (GPS軌跡 + WiFi測位 + 温度グラフ)
 ```
 
@@ -59,7 +62,9 @@ GPS取得失敗（ラズパイオフライン or GPS補足不可）
 | ラズパイ | Tailscale 設定済み、`uv` インストール済み |
 | ラズパイ | `wlan0` が利用可能（WiFi測位を使う場合） |
 | サーバ | Tailscale 設定済み、`uv` インストール済み |
+| サーバ | CUDA対応GPU + PyTorch CUDA版インストール済み（画像解析を使う場合） |
 | Slack | Incoming Webhook URL 取得済み |
+| Slack | Bot Token + チャンネルID（画像添付通知を使う場合） |
 | Google Cloud | Geolocation API 有効化・APIキー取得済み（WiFi測位を使う場合） |
 
 ### ラズパイ側セットアップ
@@ -163,8 +168,17 @@ nano .env  # 下記の必須項目を設定
 | `RASPI_GPS_URL` | ラズパイの GPS API URL | `http://100.x.x.x:8080/gps` |
 | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | `https://hooks.slack.com/...` |
 | `GOOGLE_GEOLOCATION_API_KEY` | Google Geolocation APIキー（WiFi測位を使う場合） | `AIzaSy...` |
+| `SLACK_BOT_TOKEN` | Slack Bot Token（画像添付通知を使う場合） | `xoxb-...` |
+| `SLACK_CHANNEL_ID` | 通知先のSlackチャンネルID（Bot Token使用時） | `C0123456789` |
 
 ```bash
+# PyTorch CUDA版を先にインストール（CUDAバージョンはGPUに合わせる）
+# RTX 50シリーズ (Blackwell) の場合は CUDA 12.8
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+
+# CUDA認識を確認（True が表示されればOK）
+uv run python -c "import torch; print(torch.cuda.is_available())"
+
 # 依存パッケージをインストール
 uv sync
 
@@ -277,6 +291,12 @@ sudo systemctl status gps-monitor temp-monitor gps-web
 | `NOTIFY_MOVE_THRESHOLD_M` | `200` | 即時再通知する移動距離の閾値（メートル） |
 | `REQUEST_TIMEOUT_SECONDS` | `15` | ラズパイへのリクエストタイムアウト（秒） |
 | `WEB_PORT` | `8081` | WebUIのポート |
+| `SLACK_BOT_TOKEN` | （任意） | Slack Bot Token（画像添付通知を使う場合・`xoxb-`で始まる） |
+| `SLACK_CHANNEL_ID` | （任意） | 通知先のSlackチャンネルID（Bot Token使用時に必須） |
+| `YOLO_MODEL` | `yolo11m.pt` | YOLOモデル名（初回起動時に自動ダウンロード） |
+| `YOLO_CONF` | `0.5` | YOLO検知の信頼度閾値（0.0〜1.0） |
+| `DETECT_COOLDOWN_SECONDS` | `300` | 検知通知のクールダウン時間（秒） |
+| `NEW_OBJECT_IOU_THRESHOLD` | `0.5` | 前フレームと同一物体とみなすIoU閾値（常駐車両の除外に使用） |
 
 ### ラズパイ側（`raspberry/.env`）
 
@@ -339,7 +359,8 @@ car-logger/
 │   │   └── db.py           # SQLite 温度履歴の保存・取得
 │   └── gps_web/
 │       ├── __init__.py
-│       ├── main.py         # FastAPI WebUI（GPS軌跡 + 温度グラフ）
+│       ├── main.py         # FastAPI WebUI（GPS軌跡 + 温度グラフ + 写真アップロード受信）
+│       ├── analyzer.py     # GPU画像解析ワーカー（YOLO11m + フレーム差分検知）
 │       └── templates/
 │           ├── index.html        # Leaflet.js GPS軌跡UI
 │           └── temperature.html  # Chart.js 温度グラフUI
@@ -383,6 +404,23 @@ car-logger/
    # -rwxr-xr-x 1 root root ...  となっていること
    ```
 3. WiFiをOFF→ONして `sudo journalctl -t wifi-manager -f` でイベントが発火するか確認する
+
+### 画像解析・検知通知が届かない
+
+1. CUDAが認識されているか確認する:
+   ```bash
+   uv run python -c "import torch; print(torch.cuda.is_available())"
+   ```
+   `False` の場合は PyTorch CUDA版を再インストールする（「サーバ側セットアップ」参照）
+
+2. YOLOモデルのダウンロードが完了しているか確認する（初回起動時に自動ダウンロード）:
+   ```bash
+   sudo journalctl -u gps-web -f | grep -E "YOLO|モデル"
+   ```
+
+3. `SLACK_BOT_TOKEN` と `SLACK_CHANNEL_ID` が設定されているか確認する。未設定の場合は `SLACK_WEBHOOK_URL` でテキスト通知のみ送られる
+
+4. `CHANGE_THRESHOLD` が低すぎると軽微な照明変化でも反応する。デフォルト（`0.05` = 5%）から調整する
 
 ### WiFi測位が表示されない
 
