@@ -10,7 +10,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from gps_monitor import db as gps_db
@@ -20,12 +19,13 @@ load_dotenv()
 
 app = FastAPI(title="Car Logger Viewer")
 
-_STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 WEB_PORT = int(os.getenv("WEB_PORT", "8081"))
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
+SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "")
+
 _PHOTOS_DIR = Path(__file__).parent.parent / "data" / "photos"
 
 # センサーIDと場所名のマッピング（sensor_map.json が存在すれば読み込む）
@@ -45,6 +45,13 @@ def startup() -> None:
     gps_db.init_db()
     temp_db.init_db()
     _PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+    from gps_web.analyzer import start_analyzer
+    start_analyzer(
+        webhook_url=SLACK_WEBHOOK_URL,
+        bot_token=SLACK_BOT_TOKEN,
+        channel_id=SLACK_CHANNEL_ID,
+    )
 
 
 # ---- GPS ----
@@ -223,6 +230,9 @@ async def upload_photo(
     photo_path = _PHOTOS_DIR / filename
     content = await file.read()
     photo_path.write_bytes(content)
+
+    from gps_web.analyzer import enqueue
+    enqueue(photo_path, recorded_at)
 
     photo_id = gps_db.insert_photo(
         recorded_at=recorded_at,
