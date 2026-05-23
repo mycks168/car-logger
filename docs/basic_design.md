@@ -326,7 +326,7 @@ curl -X POST http://localhost:8080/map/zoom \
 | 変数名 | デフォルト | 説明 |
 |---|---|---|
 | `WEBHOOK_ENABLED` | `false` | Webhook サーバを有効にするか |
-| `WEBHOOK_PORT` | `8080` | Webhook サーバのポート |
+| `WEBHOOK_PORT` | `8082` | Webhook サーバのポート（gps_server の 8080 とは別ポートを使うこと） |
 | `WEBHOOK_TOKEN` | （任意） | Bearer 認証トークン（空なら認証なし） |
 
 #### その他

@@ -21,7 +21,7 @@ OPENAI_TTS_INSTRUCTIONS = os.environ.get(
 )
 
 WEBHOOK_ENABLED = os.environ.get("WEBHOOK_ENABLED", "false").lower() in ("true", "1", "yes")
-WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT", "8080"))
+WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT", "8082"))
 WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "")
 
 # GPIO ピン番号（BCM）
