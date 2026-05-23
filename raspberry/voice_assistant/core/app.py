@@ -244,8 +244,10 @@ class Assistant:
 
             if self._tts:
                 tts_buffer += delta
-                m = re.search(r"[。！？.!?][\s　]?|\n", tts_buffer)
-                if m:
+                while True:
+                    m = re.search(r"[。！？.!?][\s　]?|\n", tts_buffer)
+                    if not m:
+                        break
                     cut = m.end()
                     chunk = tts_buffer[:cut].strip()
                     tts_buffer = tts_buffer[cut:]
