@@ -8,7 +8,7 @@ dependencies = [
     "python-dotenv",
     "numpy",
     "gpiozero",
-    "lgpio",
+    "rpi-lgpio",
     "pygame",
 ]
 
