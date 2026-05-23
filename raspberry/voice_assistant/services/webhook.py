@@ -158,14 +158,14 @@ class WebhookServer:
                 elif path == "/navigate/stop":
                     self.rfile.read(int(self.headers.get("Content-Length", 0)))
                     log.info("webhook /navigate/stop")
-                    on_navigate_stop()
+                    threading.Thread(target=on_navigate_stop, daemon=True).start()
                     self._respond_json(200, {"status": "stopped"})
 
                 # ── POST /navigate/pause ─────────────────────────────────────
                 elif path == "/navigate/pause":
                     self.rfile.read(int(self.headers.get("Content-Length", 0)))
                     log.info("webhook /navigate/pause")
-                    on_navigate_pause()
+                    threading.Thread(target=on_navigate_pause, daemon=True).start()
                     self._respond_json(200, {"status": "toggled"})
 
                 # ── POST /map/zoom ───────────────────────────────────────────
@@ -186,7 +186,9 @@ class WebhookServer:
                         self._respond(400, b"delta/level must be integers")
                         return
                     log.info("webhook /map/zoom: delta=%s level=%s", delta, level)
-                    on_map_zoom(delta, level)
+                    threading.Thread(
+                        target=on_map_zoom, args=(delta, level), daemon=True
+                    ).start()
                     self._respond_json(200, {"status": "ok"})
 
                 else:
