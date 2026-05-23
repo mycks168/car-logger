@@ -7,10 +7,10 @@ dependencies = [
     "requests",
     "python-dotenv",
     "numpy",
+    "gpiozero",
+    "lgpio",
+    "pygame",
 ]
-
-[project.optional-dependencies]
-pi3 = ["gpiozero", "pygame"]
 
 [tool.uv]
 dev-dependencies = []
