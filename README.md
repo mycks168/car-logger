@@ -23,7 +23,9 @@ uv run python -m gps_server.main
 
 ```bash
 cd ~/car-logger-ai/raspberry/voice_assistant
-uv sync --extra pi3
+sudo apt install python3-lgpio   # 初回のみ
+uv venv --system-site-packages
+uv sync
 cp .env.example .env
 nano .env  # 必須項目を設定
 uv run python main.py

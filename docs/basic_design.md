@@ -497,8 +497,14 @@ voice_assistant は gps_server と独立したプロセスとして動く。`gps
 ```bash
 cd ~/car-logger-ai/raspberry/voice_assistant
 
-# 依存パッケージをインストール（ラズパイ Pi3 用のハードウェアドライバも含める）
-uv sync --extra pi3
+# GPIO ライブラリをシステムパッケージとしてインストール（初回のみ）
+sudo apt install python3-lgpio
+
+# system-site-packages 付きで venv を作成し、依存パッケージをインストール
+# （apt 管理の lgpio を venv から参照するため --system-site-packages が必要）
+rm -rf .venv
+uv venv --system-site-packages
+uv sync
 
 # 環境変数ファイルを作成・編集
 cp .env.example .env
@@ -690,7 +696,7 @@ sudo journalctl -u gps-web -f
 
 ### voice_assistant が起動しない
 
-1. `uv sync --extra pi3` で依存パッケージが正しくインストールされているか確認する
+1. `sudo apt install python3-lgpio` → `rm -rf .venv` → `uv venv --system-site-packages` → `uv sync` の手順でインストールしているか確認する
 2. `OPENCLAW_BASE_URL` と `OPENCLAW_TOKEN` が設定されているか確認する
 3. `arecord -l` でマイクデバイスが見えるか確認し、`AUDIO_DEVICE` を合わせる
 4. `DRY_RUN=true` を設定すると API 呼び出しをスキップして動作確認できる
@@ -744,4 +750,4 @@ sqlite3 server/data/gps_history.db "DELETE FROM family_faces WHERE id=<ID>;"
 
 1. `PI3_PTT_GPIO` のピン番号（BCM）が正しいか確認する
 2. ラズパイの GPIO が有効になっているか確認する（`raspi-config` → Interface Options → GPIO）
-3. `gpiozero` がインストールされているか確認する（`uv sync --extra pi3`）
+3. `gpiozero` がインストールされているか確認する（`uv sync`）
