@@ -1,0 +1,16 @@
+[project]
+name = "voice-assistant"
+version = "0.1.0"
+description = "PTT音声AIアシスタント for Raspberry Pi 3"
+requires-python = ">=3.11"
+dependencies = [
+    "requests",
+    "python-dotenv",
+    "numpy",
+]
+
+[project.optional-dependencies]
+pi3 = ["gpiozero", "pygame"]
+
+[tool.uv]
+dev-dependencies = []

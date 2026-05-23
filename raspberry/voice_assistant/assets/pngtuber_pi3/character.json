@@ -1,0 +1,1081 @@
+{
+  "idle": {
+    "loop": [
+      {
+        "image": "breathing_warp_frames/frame_0000.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0001.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0002.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0003.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0004.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0005.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0006.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0007.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0008.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0009.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0010.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0011.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0012.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0013.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0014.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0015.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0016.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0017.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0018.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0019.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0020.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0021.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0022.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0023.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0024.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0025.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0026.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0027.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0028.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0029.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0030.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "breathing_warp_frames/frame_0031.png",
+        "duration_ms": 125
+      }
+    ],
+    "blink_loop": [
+      "breathing_warp_blink_frames/frame_0000.png",
+      "breathing_warp_blink_frames/frame_0001.png",
+      "breathing_warp_blink_frames/frame_0002.png",
+      "breathing_warp_blink_frames/frame_0003.png",
+      "breathing_warp_blink_frames/frame_0004.png",
+      "breathing_warp_blink_frames/frame_0005.png",
+      "breathing_warp_blink_frames/frame_0006.png",
+      "breathing_warp_blink_frames/frame_0007.png",
+      "breathing_warp_blink_frames/frame_0008.png",
+      "breathing_warp_blink_frames/frame_0009.png",
+      "breathing_warp_blink_frames/frame_0010.png",
+      "breathing_warp_blink_frames/frame_0011.png",
+      "breathing_warp_blink_frames/frame_0012.png",
+      "breathing_warp_blink_frames/frame_0013.png",
+      "breathing_warp_blink_frames/frame_0014.png",
+      "breathing_warp_blink_frames/frame_0015.png",
+      "breathing_warp_blink_frames/frame_0016.png",
+      "breathing_warp_blink_frames/frame_0017.png",
+      "breathing_warp_blink_frames/frame_0018.png",
+      "breathing_warp_blink_frames/frame_0019.png",
+      "breathing_warp_blink_frames/frame_0020.png",
+      "breathing_warp_blink_frames/frame_0021.png",
+      "breathing_warp_blink_frames/frame_0022.png",
+      "breathing_warp_blink_frames/frame_0023.png",
+      "breathing_warp_blink_frames/frame_0024.png",
+      "breathing_warp_blink_frames/frame_0025.png",
+      "breathing_warp_blink_frames/frame_0026.png",
+      "breathing_warp_blink_frames/frame_0027.png",
+      "breathing_warp_blink_frames/frame_0028.png",
+      "breathing_warp_blink_frames/frame_0029.png",
+      "breathing_warp_blink_frames/frame_0030.png",
+      "breathing_warp_blink_frames/frame_0031.png"
+    ]
+  },
+  "listen": {
+    "loop": [
+      {
+        "image": "listen_warp_frames/frame_0000.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0001.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0002.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0003.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0004.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0005.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0006.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0007.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0008.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0009.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0010.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0011.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0012.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0013.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0014.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0015.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0016.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0017.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0018.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0019.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0020.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0021.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0022.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0023.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0024.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0025.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0026.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0027.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0028.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0029.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0030.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_warp_frames/frame_0031.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0000.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0001.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0002.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0003.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0004.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0005.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0006.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0007.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0008.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0009.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0010.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0011.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0012.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0013.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0014.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0015.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0016.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0017.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0018.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0019.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0020.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0021.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0022.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0023.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0024.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0025.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0026.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0027.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0028.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0029.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0030.png",
+        "duration_ms": 125
+      },
+      {
+        "image": "listen_nod_warp_frames/frame_0031.png",
+        "duration_ms": 125
+      }
+    ],
+    "blink": "blink_idle.png"
+  },
+  "talk": {
+    "loop": [
+      {
+        "image": "talk_open_warp_frames/frame_0000.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0000.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0000.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0000.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0001.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0001.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0001.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0001.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0002.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0002.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0002.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0002.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0003.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0003.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0003.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0003.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0004.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0004.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0004.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0004.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0005.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0005.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0005.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0005.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0006.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0006.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0006.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0006.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0007.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0007.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0007.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0007.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0008.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0008.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0008.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0008.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0009.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0009.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0009.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0009.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0010.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0010.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0010.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0010.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0011.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0011.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0011.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0011.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0012.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0012.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0012.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0012.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0013.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0013.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0013.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0013.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0014.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0014.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0014.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0014.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0015.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0015.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0015.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0015.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0016.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0016.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0016.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0016.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0017.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0017.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0017.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0017.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0018.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0018.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0018.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0018.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0019.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0019.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0019.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0019.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0020.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0020.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0020.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0020.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0021.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0021.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0021.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0021.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0022.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0022.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0022.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0022.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0023.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0023.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0023.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0023.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0024.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0024.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0024.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0024.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0025.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0025.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0025.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0025.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0026.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0026.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0026.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0026.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0027.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0027.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0027.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0027.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0028.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0028.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0028.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0028.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0029.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0029.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0029.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0029.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0030.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0030.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0030.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0030.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0031.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_full_warp_frames/frame_0031.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_open_warp_frames/frame_0031.png",
+        "duration_ms": 100
+      },
+      {
+        "image": "talk_close_warp_frames/frame_0031.png",
+        "duration_ms": 100
+      }
+    ],
+    "blink_loop": [
+      "blink_talk_warp_frames/frame_0000.png",
+      "blink_talk_warp_frames/frame_0000.png",
+      "blink_talk_warp_frames/frame_0000.png",
+      "blink_talk_warp_frames/frame_0000.png",
+      "blink_talk_warp_frames/frame_0001.png",
+      "blink_talk_warp_frames/frame_0001.png",
+      "blink_talk_warp_frames/frame_0001.png",
+      "blink_talk_warp_frames/frame_0001.png",
+      "blink_talk_warp_frames/frame_0002.png",
+      "blink_talk_warp_frames/frame_0002.png",
+      "blink_talk_warp_frames/frame_0002.png",
+      "blink_talk_warp_frames/frame_0002.png",
+      "blink_talk_warp_frames/frame_0003.png",
+      "blink_talk_warp_frames/frame_0003.png",
+      "blink_talk_warp_frames/frame_0003.png",
+      "blink_talk_warp_frames/frame_0003.png",
+      "blink_talk_warp_frames/frame_0004.png",
+      "blink_talk_warp_frames/frame_0004.png",
+      "blink_talk_warp_frames/frame_0004.png",
+      "blink_talk_warp_frames/frame_0004.png",
+      "blink_talk_warp_frames/frame_0005.png",
+      "blink_talk_warp_frames/frame_0005.png",
+      "blink_talk_warp_frames/frame_0005.png",
+      "blink_talk_warp_frames/frame_0005.png",
+      "blink_talk_warp_frames/frame_0006.png",
+      "blink_talk_warp_frames/frame_0006.png",
+      "blink_talk_warp_frames/frame_0006.png",
+      "blink_talk_warp_frames/frame_0006.png",
+      "blink_talk_warp_frames/frame_0007.png",
+      "blink_talk_warp_frames/frame_0007.png",
+      "blink_talk_warp_frames/frame_0007.png",
+      "blink_talk_warp_frames/frame_0007.png",
+      "blink_talk_warp_frames/frame_0008.png",
+      "blink_talk_warp_frames/frame_0008.png",
+      "blink_talk_warp_frames/frame_0008.png",
+      "blink_talk_warp_frames/frame_0008.png",
+      "blink_talk_warp_frames/frame_0009.png",
+      "blink_talk_warp_frames/frame_0009.png",
+      "blink_talk_warp_frames/frame_0009.png",
+      "blink_talk_warp_frames/frame_0009.png",
+      "blink_talk_warp_frames/frame_0010.png",
+      "blink_talk_warp_frames/frame_0010.png",
+      "blink_talk_warp_frames/frame_0010.png",
+      "blink_talk_warp_frames/frame_0010.png",
+      "blink_talk_warp_frames/frame_0011.png",
+      "blink_talk_warp_frames/frame_0011.png",
+      "blink_talk_warp_frames/frame_0011.png",
+      "blink_talk_warp_frames/frame_0011.png",
+      "blink_talk_warp_frames/frame_0012.png",
+      "blink_talk_warp_frames/frame_0012.png",
+      "blink_talk_warp_frames/frame_0012.png",
+      "blink_talk_warp_frames/frame_0012.png",
+      "blink_talk_warp_frames/frame_0013.png",
+      "blink_talk_warp_frames/frame_0013.png",
+      "blink_talk_warp_frames/frame_0013.png",
+      "blink_talk_warp_frames/frame_0013.png",
+      "blink_talk_warp_frames/frame_0014.png",
+      "blink_talk_warp_frames/frame_0014.png",
+      "blink_talk_warp_frames/frame_0014.png",
+      "blink_talk_warp_frames/frame_0014.png",
+      "blink_talk_warp_frames/frame_0015.png",
+      "blink_talk_warp_frames/frame_0015.png",
+      "blink_talk_warp_frames/frame_0015.png",
+      "blink_talk_warp_frames/frame_0015.png",
+      "blink_talk_warp_frames/frame_0016.png",
+      "blink_talk_warp_frames/frame_0016.png",
+      "blink_talk_warp_frames/frame_0016.png",
+      "blink_talk_warp_frames/frame_0016.png",
+      "blink_talk_warp_frames/frame_0017.png",
+      "blink_talk_warp_frames/frame_0017.png",
+      "blink_talk_warp_frames/frame_0017.png",
+      "blink_talk_warp_frames/frame_0017.png",
+      "blink_talk_warp_frames/frame_0018.png",
+      "blink_talk_warp_frames/frame_0018.png",
+      "blink_talk_warp_frames/frame_0018.png",
+      "blink_talk_warp_frames/frame_0018.png",
+      "blink_talk_warp_frames/frame_0019.png",
+      "blink_talk_warp_frames/frame_0019.png",
+      "blink_talk_warp_frames/frame_0019.png",
+      "blink_talk_warp_frames/frame_0019.png",
+      "blink_talk_warp_frames/frame_0020.png",
+      "blink_talk_warp_frames/frame_0020.png",
+      "blink_talk_warp_frames/frame_0020.png",
+      "blink_talk_warp_frames/frame_0020.png",
+      "blink_talk_warp_frames/frame_0021.png",
+      "blink_talk_warp_frames/frame_0021.png",
+      "blink_talk_warp_frames/frame_0021.png",
+      "blink_talk_warp_frames/frame_0021.png",
+      "blink_talk_warp_frames/frame_0022.png",
+      "blink_talk_warp_frames/frame_0022.png",
+      "blink_talk_warp_frames/frame_0022.png",
+      "blink_talk_warp_frames/frame_0022.png",
+      "blink_talk_warp_frames/frame_0023.png",
+      "blink_talk_warp_frames/frame_0023.png",
+      "blink_talk_warp_frames/frame_0023.png",
+      "blink_talk_warp_frames/frame_0023.png",
+      "blink_talk_warp_frames/frame_0024.png",
+      "blink_talk_warp_frames/frame_0024.png",
+      "blink_talk_warp_frames/frame_0024.png",
+      "blink_talk_warp_frames/frame_0024.png",
+      "blink_talk_warp_frames/frame_0025.png",
+      "blink_talk_warp_frames/frame_0025.png",
+      "blink_talk_warp_frames/frame_0025.png",
+      "blink_talk_warp_frames/frame_0025.png",
+      "blink_talk_warp_frames/frame_0026.png",
+      "blink_talk_warp_frames/frame_0026.png",
+      "blink_talk_warp_frames/frame_0026.png",
+      "blink_talk_warp_frames/frame_0026.png",
+      "blink_talk_warp_frames/frame_0027.png",
+      "blink_talk_warp_frames/frame_0027.png",
+      "blink_talk_warp_frames/frame_0027.png",
+      "blink_talk_warp_frames/frame_0027.png",
+      "blink_talk_warp_frames/frame_0028.png",
+      "blink_talk_warp_frames/frame_0028.png",
+      "blink_talk_warp_frames/frame_0028.png",
+      "blink_talk_warp_frames/frame_0028.png",
+      "blink_talk_warp_frames/frame_0029.png",
+      "blink_talk_warp_frames/frame_0029.png",
+      "blink_talk_warp_frames/frame_0029.png",
+      "blink_talk_warp_frames/frame_0029.png",
+      "blink_talk_warp_frames/frame_0030.png",
+      "blink_talk_warp_frames/frame_0030.png",
+      "blink_talk_warp_frames/frame_0030.png",
+      "blink_talk_warp_frames/frame_0030.png",
+      "blink_talk_warp_frames/frame_0031.png",
+      "blink_talk_warp_frames/frame_0031.png",
+      "blink_talk_warp_frames/frame_0031.png",
+      "blink_talk_warp_frames/frame_0031.png"
+    ]
+  },
+  "_blink": {
+    "interval_min_s": 2.0,
+    "interval_max_s": 5.0,
+    "close_ms": 100,
+    "fade_ms": 60
+  }
+}

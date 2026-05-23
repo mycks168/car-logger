@@ -1,0 +1,22 @@
+[Unit]
+Description=Voice Assistant (PTT AI)
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/car-logger-ai/raspberry/voice_assistant
+EnvironmentFile=/home/pi/car-logger-ai/raspberry/voice_assistant/.env
+ExecStart=/home/pi/car-logger-ai/raspberry/voice_assistant/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# pygame が KMS ドライバを使えるようにするため
+Environment=SDL_VIDEODRIVER=kms
+Environment=SDL_AUDIODRIVER=alsa
+
+[Install]
+WantedBy=multi-user.target
