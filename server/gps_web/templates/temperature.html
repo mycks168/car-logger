@@ -101,6 +101,16 @@
     .stat-card .vals { display: flex; gap: 12px; }
     .stat-card .val  { font-size: 1rem; font-weight: 600; }
     .stat-card .val span { font-size: 0.7rem; color: #64748b; margin-left: 2px; }
+    .stat-card { transition: opacity 0.2s; }
+    .stat-card.hidden-sensor { opacity: 0.35; }
+    .stat-card .sensor-label {
+      display: flex; align-items: center; gap: 6px;
+      cursor: pointer; margin-bottom: 4px;
+    }
+    .stat-card input[type="checkbox"] {
+      accent-color: currentColor;
+      width: 14px; height: 14px; cursor: pointer; flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -262,8 +272,11 @@ function drawStats(sensors, sensorMap) {
     const color = PALETTE[i % PALETTE.length];
 
     el.insertAdjacentHTML('beforeend', `
-      <div class="stat-card">
-        <div class="name" style="color:${color}">${name}</div>
+      <div class="stat-card" id="stat-card-${i}">
+        <label class="sensor-label" style="color:${color}">
+          <input type="checkbox" checked onchange="toggleSensor(${i}, this.checked)">
+          ${name}
+        </label>
         <div class="vals">
           <div class="val">${min}<span>°C 最低</span></div>
           <div class="val">${avg}<span>°C 平均</span></div>
@@ -272,6 +285,13 @@ function drawStats(sensors, sensorMap) {
       </div>
     `);
   });
+}
+
+// ---- センサー表示切替 ----
+function toggleSensor(idx, visible) {
+  chart.setDatasetVisibility(idx, visible);
+  chart.update();
+  document.getElementById(`stat-card-${idx}`).classList.toggle('hidden-sensor', !visible);
 }
 
 function setStatus(msg, cls) {

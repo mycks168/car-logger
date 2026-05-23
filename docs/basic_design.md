@@ -138,6 +138,29 @@ curl -X POST http://localhost:8080/speak \
 | `CACHE_MAX_AGE_SECONDS` | `86400` | GPS未取得時にキャッシュを無効化するまでの秒数 |
 | `WIFI_IFACE` | `wlan0` | WiFiスキャンに使うインターフェース名 |
 | `WIFI_SCAN_INTERVAL_SECONDS` | `300` | WiFiスキャン間隔（秒） |
+| `PUSH_SERVER_URL` | （空） | サーバへの位置Push先URL（例: `http://100.x.x.x:8081`、未設定時はPush無効） |
+| `PUSH_TIMEOUT_SECONDS` | `10` | Push リクエストのタイムアウト（秒） |
+
+#### MPU-6050 加速度センサー（`raspberry/.env`）
+
+| 変数名 | デフォルト | 説明 |
+|---|---|---|
+| `MPU6050_BUS` | `1` | I2C バス番号 |
+| `MPU6050_ADDR` | `0x68` | MPU-6050 の I2C アドレス |
+| `ACCEL_THRESHOLD_MS2` | `0.5` | 加速度検知閾値 (m/s²) |
+| `ACCEL_POLL_INTERVAL_SECONDS` | `0.1` | 加速度ポーリング間隔（秒） |
+| `ACCEL_ACTIVE_WINDOW_SECONDS` | `30` | 最後に加速を検知してからアクティブとみなす秒数 |
+| `ACCEL_PUSH_INTERVAL_SECONDS` | `10` | アクティブ時のPush間隔（秒） |
+
+#### USBカメラ（`raspberry/.env`）
+
+| 変数名 | デフォルト | 説明 |
+|---|---|---|
+| `CAMERA_DEVICE` | `0` | カメラデバイス番号（`/dev/video0` の場合は `0`） |
+| `CAMERA_WIDTH` | `640` | 撮影解像度 幅 (px) |
+| `CAMERA_HEIGHT` | `480` | 撮影解像度 高さ (px) |
+| `CAMERA_JPEG_QUALITY` | `75` | JPEG 品質（1–100） |
+| `CAMERA_INTERVAL_SECONDS` | `60` | 定期撮影間隔（秒） |
 
 ### voice_assistant（`raspberry/voice_assistant/.env`）
 
@@ -312,6 +335,25 @@ sudo systemctl enable gps-server
 sudo systemctl start gps-server
 sudo systemctl status gps-server
 ```
+
+#### WiFi自動切り替えのセットアップ（99-wifi-manager）
+
+ラズパイ3のWiFi（wlan0）は NetworkManager Dispatcher が自動制御する。
+
+| 状況 | 動作 |
+|---|---|
+| 自宅WiFi接続中 | wlan0 を優先（metric 100）。WiFiスキャンによるGeolocation補完も有効 |
+| 自宅WiFi圏外 | wlan0 は未接続のままスキャン可能な状態を維持。eth1（iPhoneテザリング）経由でTailscale接続 |
+| eth1（USBテザリング）接続中 | 常時フォールバック回線として利用（metric 200）。WiFiが繋がれば自動的にWiFi優先になる |
+
+```bash
+# Dispatcher スクリプトを配置
+sudo cp 99-wifi-manager /etc/NetworkManager/dispatcher.d/99-wifi-manager
+sudo chmod +x /etc/NetworkManager/dispatcher.d/99-wifi-manager
+sudo chown root:root /etc/NetworkManager/dispatcher.d/99-wifi-manager
+```
+
+設定後はWiFiを一度OFF→ONにすることで自動切り替えが有効になる。動作ログは `sudo journalctl -t wifi-manager` で確認できる。
 
 ---
 
@@ -502,6 +544,16 @@ sudo journalctl -u gps-web -f
 2. `curl http://<ラズパイIP>:8080/temperatures` でAPIのレスポンスを確認する
 3. `RASPI_BASE_URL` が正しく設定されているか確認する（`RASPI_GPS_URL` とは別の変数）
 4. センサー名を設定するには `server/sensor_map.json.example` をコピーして `sensor_map.json` を作成する
+
+### WiFi自動切り替えが動かない
+
+1. `sudo journalctl -t wifi-manager --no-pager` でDispatcherのログを確認する
+2. `/etc/NetworkManager/dispatcher.d/99-wifi-manager` の権限を確認する（root所有・実行権限が必要）:
+   ```bash
+   ls -la /etc/NetworkManager/dispatcher.d/99-wifi-manager
+   # -rwxr-xr-x 1 root root ...  となっていること
+   ```
+3. WiFiをOFF→ONして `sudo journalctl -t wifi-manager -f` でイベントが発火するか確認する
 
 ### WiFi測位が表示されない
 
