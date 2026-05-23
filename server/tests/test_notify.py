@@ -70,3 +70,62 @@ class TestSendRecovery:
         with patch("gps_monitor.notify.httpx.post", side_effect=Exception("接続失敗")):
             result = send_recovery("https://hooks.example.com/webhook", 35.0, 139.0)
         assert result is False
+
+
+class TestSendPersonAlert:
+    """slack_bot.send_person_alert のユニットテスト。"""
+
+    def test_BOT_TOKEN未設定時はスキップ(self):
+        import gps_web.slack_bot as m
+        with patch.object(m, "SLACK_BOT_TOKEN", ""), \
+             patch.object(m, "SLACK_CHANNEL", "C123"):
+            # 例外が発生しないこと
+            m.send_person_alert(1, b"\xff\xd8\xff", "2024-01-15T12:00:00+00:00")
+
+    def test_CHANNEL未設定時はスキップ(self):
+        import gps_web.slack_bot as m
+        with patch.object(m, "SLACK_BOT_TOKEN", "xoxb-dummy"), \
+             patch.object(m, "SLACK_CHANNEL", ""):
+            m.send_person_alert(1, b"\xff\xd8\xff", "2024-01-15T12:00:00+00:00")
+
+    def test_WebClient呼び出しを確認(self):
+        import gps_web.slack_bot as m
+        mock_client = MagicMock()
+        mock_client.files_upload_v2.return_value = {"file": {"shares": {}}}
+        with patch.object(m, "SLACK_BOT_TOKEN", "xoxb-dummy"), \
+             patch.object(m, "SLACK_CHANNEL", "C123"), \
+             patch("slack_sdk.WebClient", return_value=mock_client):
+            m.send_person_alert(42, b"\xff\xd8\xff", "2024-01-15T12:00:00+00:00")
+        mock_client.files_upload_v2.assert_called_once()
+        mock_client.chat_postMessage.assert_called_once()
+        # ボタンのvalue に photo_id が含まれること
+        call_kwargs = mock_client.chat_postMessage.call_args.kwargs
+        blocks = call_kwargs["blocks"]
+        button = blocks[0]["elements"][0]
+        assert button["value"] == "42"
+        assert button["action_id"] == "mark_family"
+
+
+class TestFamilyMemberOptions:
+    def test_メンバー未登録時はデフォルト選択肢を返す(self):
+        import gps_web.slack_bot as m
+        from gps_monitor import db as gps_db
+        with patch.object(gps_db, "list_family_members", return_value=[]):
+            opts = m._family_member_options()
+        assert len(opts) == 1
+        assert opts[0]["value"] == "unknown"
+
+    def test_登録済みメンバーをオプションに変換する(self):
+        import gps_web.slack_bot as m
+        from gps_monitor import db as gps_db
+        members = [
+            {"id": 1, "name": "私"},
+            {"id": 2, "name": "妻"},
+            {"id": 3, "name": "息子"},
+        ]
+        with patch.object(gps_db, "list_family_members", return_value=members):
+            opts = m._family_member_options()
+        assert len(opts) == 3
+        assert opts[0]["value"] == "私"
+        assert opts[1]["value"] == "妻"
+        assert opts[2]["value"] == "息子"

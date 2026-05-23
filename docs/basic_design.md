@@ -117,7 +117,11 @@ curl -X POST http://localhost:8080/speak \
 |---|---|---|
 | `RASPI_BASE_URL` | （必須） | ラズパイのベースURL（温度取得に使用） |
 | `RASPI_GPS_URL` | （必須） | ラズパイの GPS API URL |
-| `SLACK_WEBHOOK_URL` | （必須） | Slack Incoming Webhook URL |
+| `SLACK_WEBHOOK_URL` | （必須） | Slack Incoming Webhook URL（GPS断線アラート用） |
+| `SLACK_BOT_TOKEN` | （任意） | Slack Bot Token `xoxb-...`（人物検知通知・Socket Mode用） |
+| `SLACK_APP_TOKEN` | （任意） | Slack App-Level Token `xapp-...`（Socket Mode用） |
+| `SLACK_CHANNEL` | （任意） | 人物検知通知先チャンネルID（例: `C0123456789`） |
+| `FACE_SIMILARITY_THRESHOLD` | `0.4` | 家族と判定するコサイン類似度の閾値（0〜1、大きいほど厳格） |
 | `GOOGLE_GEOLOCATION_API_KEY` | （任意） | Google Geolocation APIキー（未設定時はWiFi測位スキップ） |
 | `POLL_INTERVAL_SECONDS` | `60` | GPS ポーリング間隔（秒） |
 | `TEMP_POLL_INTERVAL_SECONDS` | `300` | 温度ポーリング間隔（秒） |
@@ -268,6 +272,125 @@ curl -X POST http://localhost:8080/speak \
 | Slack | Incoming Webhook URL 取得済み |
 | Google Cloud | Geolocation API 有効化・APIキー取得済み（WiFi測位を使う場合） |
 | OpenAI / OpenClaw | API キー・エンドポイント取得済み（voice_assistant を使う場合） |
+
+### Slackアプリのセットアップ（人物検知・Socket Mode）
+
+カメラ写真に不審者が写った際の Slack 通知と、ボタン1クリックで家族として学習させる機能に必要な設定。
+
+> **前提**: `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` / `SLACK_CHANNEL` が未設定の場合、人物検知は実行されるが Slack 通知はスキップされる（エラーにはならない）。
+
+#### 1. Slack アプリの作成
+
+1. [https://api.slack.com/apps](https://api.slack.com/apps) を開く
+2. **Create New App** → **From scratch** を選択
+3. アプリ名（例: `car-logger`）とワークスペースを入力して作成
+
+#### 2. Socket Mode を有効化 + App-Level Token の取得
+
+1. 左メニュー → **Socket Mode** → **Enable Socket Mode** をオン
+2. **Generate an app-level token** をクリック
+3. Token Name（例: `socket-mode`）を入力し、スコープに **`connections:write`** を追加
+4. **Generate** → 表示された `xapp-...` を `.env` の `SLACK_APP_TOKEN` に設定
+
+#### 3. Interactivity（ボタンアクション）を有効化
+
+1. 左メニュー → **Interactivity & Shortcuts** → **Interactivity** をオン
+2. Request URL は Socket Mode のため **不要**（空欄でOK）
+3. **Save Changes**
+
+#### 4. Bot Token スコープの設定
+
+1. 左メニュー → **OAuth & Permissions** → **Bot Token Scopes** へ
+2. 以下のスコープを追加:
+
+| スコープ | 用途 |
+|---|---|
+| `chat:write` | メッセージ送信・ボタンメッセージ更新 |
+| `files:write` | 検知写真のアップロード |
+| `channels:join` | パブリックチャンネルへの自動参加（プライベートチャンネルの場合は不要） |
+
+#### 5. アプリをワークスペースにインストール + Bot Token の取得
+
+1. **OAuth & Permissions** → **Install to Workspace** をクリック
+2. 権限を確認して **許可する**
+3. 表示された **Bot User OAuth Token** (`xoxb-...`) を `.env` の `SLACK_BOT_TOKEN` に設定
+
+#### 6. 通知先チャンネルの設定
+
+1. Slack で通知を受け取りたいチャンネルを右クリック → **チャンネル詳細を表示**
+2. 一番下に表示されるチャンネルID（`C0123456789` 形式）を `.env` の `SLACK_CHANNEL` に設定
+3. そのチャンネルにボットを招待する:
+   ```
+   /invite @car-logger
+   ```
+
+#### 7. .env への設定例
+
+```env
+SLACK_BOT_TOKEN=xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx
+SLACK_APP_TOKEN=xapp-1-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+SLACK_CHANNEL=C0123456789
+FACE_SIMILARITY_THRESHOLD=0.4
+```
+
+#### 家族メンバーの事前登録
+
+Slackのボタンに表示される選択肢は `family_members` テーブルで管理する。サーバ起動後に API で登録する:
+
+```bash
+# メンバーを追加
+curl -X POST http://localhost:8081/api/family-members \
+  -H "Content-Type: application/json" \
+  -d '{"name": "私"}'
+curl -X POST http://localhost:8081/api/family-members \
+  -H "Content-Type: application/json" \
+  -d '{"name": "妻"}'
+curl -X POST http://localhost:8081/api/family-members \
+  -H "Content-Type: application/json" \
+  -d '{"name": "息子"}'
+curl -X POST http://localhost:8081/api/family-members \
+  -H "Content-Type: application/json" \
+  -d '{"name": "娘"}'
+
+# 一覧確認
+curl http://localhost:8081/api/family-members
+
+# 削除（id=3の場合）
+curl -X DELETE http://localhost:8081/api/family-members/3
+```
+
+#### 通知の見た目
+
+不明人物が検知されると以下のようなメッセージが届く:
+
+```
+[検知写真がアップロードされる]
+:bust_in_silhouette: 不審者を検知しました
+検知時刻: 2026-05-23 10:30:00 JST
+写真ID: 42
+
+[この人は家族です] ← ボタン
+```
+
+ボタンを押すとモーダルが開き、誰かを選択して登録できる:
+
+```
+┌──────────────────────────────┐
+│ 家族として登録                │
+│                              │
+│ 写真42の人物を誰として登録しますか？ │
+│ 名前: [私 ▼]                 │
+│                              │
+│ [キャンセル]  [登録する]      │
+└──────────────────────────────┘
+```
+
+登録後:
+- ラベル付きで顔の埋め込みベクトルがDBに保存される
+- 次回以降、同じ人物はスキップされ「家族を検知: label=息子」とログに記録される
+- メッセージが「✅ 写真42の人物を **息子** として登録しました」に更新される
+
+---
 
 ### ラズパイ側セットアップ（GPS サーバ）
 
@@ -585,6 +708,37 @@ sudo journalctl -u gps-web -f
 2. `aplay -D plughw:CARD=vc4hdmi,DEV=0 /usr/share/sounds/alsa/Front_Left.wav` で再生確認する
 3. `AUDIO_OUTPUT_VOLUME` が十分な値か確認する
 4. `TTS_ENGINE=voicevox` の場合、`VOICEVOX_URL` にアクセスできるか確認する
+
+### 人物検知が動かない / Slack通知が届かない
+
+1. `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` / `SLACK_CHANNEL` がすべて設定されているか確認する
+2. ボットがチャンネルに招待されているか確認する（`/invite @<ボット名>`）
+3. **Interactivity & Shortcuts** → **Interactivity** がオンになっているか確認する
+4. **Socket Mode** がオンになっているか確認する
+5. WebUI ログで `Slack Socket Mode を開始しました` が出力されているか確認する:
+   ```bash
+   sudo journalctl -u gps-web -f | grep -i slack
+   ```
+
+### 「この人は家族です」ボタンを押しても反応しない
+
+1. Socket Mode の接続が切れている可能性がある → サービスを再起動する
+2. InsightFace が写真から顔を再検出できなかった場合、Slack スレッドにエラーメッセージが届く
+3. InsightFace のモデル初回ダウンロードが失敗している可能性がある:
+   ```bash
+   # ~/.insightface/models/ にモデルが存在するか確認
+   ls ~/.insightface/models/
+   ```
+
+### 家族の登録が増えすぎて誤判定が増えた場合
+
+```bash
+# 登録済みの家族顔を確認
+sqlite3 server/data/gps_history.db "SELECT id, created_at, photo_id FROM family_faces;"
+
+# 誤登録を削除
+sqlite3 server/data/gps_history.db "DELETE FROM family_faces WHERE id=<ID>;"
+```
 
 ### ボタンが反応しない
 

@@ -34,15 +34,39 @@ CREATE TABLE IF NOT EXISTS geolocation_log (
 CREATE INDEX IF NOT EXISTS idx_geo_recorded_at ON geolocation_log (recorded_at);
 
 CREATE TABLE IF NOT EXISTS camera_photos (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    recorded_at TEXT NOT NULL,  -- ISO 8601 UTC
-    lat         REAL,           -- 撮影時のGPS緯度（取得できない場合はNULL）
-    lon         REAL,
-    alt         REAL,
-    photo_path  TEXT NOT NULL   -- server/data/photos/ 以下の相対パス
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at      TEXT NOT NULL,  -- ISO 8601 UTC
+    lat              REAL,           -- 撮影時のGPS緯度（取得できない場合はNULL）
+    lon              REAL,
+    alt              REAL,
+    photo_path       TEXT NOT NULL,  -- server/data/photos/ 以下の相対パス
+    person_detected  INTEGER DEFAULT NULL,  -- NULL=未検知, 0=人物なし, 1=人物あり
+    is_family        INTEGER DEFAULT NULL   -- NULL=未判定, 0=不明人物, 1=家族
 );
 CREATE INDEX IF NOT EXISTS idx_photo_recorded_at ON camera_photos (recorded_at);
+
+CREATE TABLE IF NOT EXISTS family_faces (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT NOT NULL,  -- ISO 8601 UTC
+    photo_id    INTEGER,        -- 元写真ID（NULL=手動追加）
+    embedding   BLOB NOT NULL,  -- 顔埋め込みベクトル（numpy配列をbytesでシリアライズ）
+    label       TEXT,           -- 誰の顔か（family_members.name と対応）
+    note        TEXT
+);
+
+CREATE TABLE IF NOT EXISTS family_members (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    name  TEXT NOT NULL UNIQUE  -- 例: "私", "妻", "息子", "娘"
+);
 """
+
+# 既存DBへのカラム追加（既に存在する場合はスキップ）
+_MIGRATIONS = [
+    "ALTER TABLE camera_photos ADD COLUMN person_detected INTEGER DEFAULT NULL",
+    "ALTER TABLE camera_photos ADD COLUMN is_family INTEGER DEFAULT NULL",
+    "ALTER TABLE camera_photos ADD COLUMN family_label TEXT DEFAULT NULL",
+    "ALTER TABLE family_faces ADD COLUMN label TEXT DEFAULT NULL",
+]
 
 
 @contextmanager
@@ -60,6 +84,11 @@ def _conn():
 def init_db() -> None:
     with _conn() as con:
         con.executescript(_CREATE_TABLE)
+        for sql in _MIGRATIONS:
+            try:
+                con.execute(sql)
+            except sqlite3.OperationalError:
+                pass  # カラムが既に存在する場合はスキップ
 
 
 def insert(
@@ -170,3 +199,69 @@ def get_photo_path(photo_id: int) -> str | None:
             (photo_id,),
         ).fetchone()
     return row["photo_path"] if row else None
+
+
+def update_photo_person_info(
+    photo_id: int,
+    person_detected: bool,
+    is_family: bool,
+    family_label: str | None = None,
+) -> None:
+    """人物検知結果をcamera_photosに記録する。"""
+    with _conn() as con:
+        con.execute(
+            "UPDATE camera_photos SET person_detected=?, is_family=?, family_label=? WHERE id=?",
+            (1 if person_detected else 0, 1 if is_family else 0, family_label, photo_id),
+        )
+
+
+def insert_family_face(
+    created_at: str,
+    photo_id: int | None,
+    embedding: bytes,
+    label: str | None = None,
+    note: str | None = None,
+) -> int:
+    """家族の顔埋め込みを登録しIDを返す。"""
+    with _conn() as con:
+        cur = con.execute(
+            "INSERT INTO family_faces (created_at, photo_id, embedding, label, note) VALUES (?,?,?,?,?)",
+            (created_at, photo_id, embedding, label, note),
+        )
+        return cur.lastrowid
+
+
+def list_family_embeddings() -> list[dict]:
+    """登録済みの家族顔埋め込み一覧を返す（embedding と label を含む）。"""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT embedding, label FROM family_faces ORDER BY created_at ASC",
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---- 家族メンバー管理 ----
+
+def list_family_members() -> list[dict]:
+    """登録済み家族メンバーの一覧を返す。"""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT id, name FROM family_members ORDER BY id ASC",
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def insert_family_member(name: str) -> int:
+    """家族メンバーを追加しIDを返す。同名が既にある場合は IntegrityError が発生する。"""
+    with _conn() as con:
+        cur = con.execute(
+            "INSERT INTO family_members (name) VALUES (?)",
+            (name,),
+        )
+        return cur.lastrowid
+
+
+def delete_family_member(member_id: int) -> None:
+    """家族メンバーを削除する。"""
+    with _conn() as con:
+        con.execute("DELETE FROM family_members WHERE id=?", (member_id,))

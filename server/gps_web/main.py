@@ -3,15 +3,18 @@ GPS軌跡・温度グラフ表示WebUI。
 """
 
 import json
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, Query, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from gps_monitor import db as gps_db
 from temp_monitor import db as temp_db
@@ -45,6 +48,8 @@ def startup() -> None:
     gps_db.init_db()
     temp_db.init_db()
     _PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+    from gps_web.slack_bot import start_socket_mode
+    start_socket_mode(_PHOTOS_DIR)
 
 
 # ---- GPS ----
@@ -171,6 +176,39 @@ def get_sensor_list() -> JSONResponse:
     })
 
 
+# ---- 家族メンバー管理 ----
+
+class _FamilyMemberBody(BaseModel):
+    name: str
+
+
+@app.get("/api/family-members")
+def get_family_members() -> JSONResponse:
+    """登録済み家族メンバーの一覧を返す。"""
+    return JSONResponse({"members": gps_db.list_family_members()})
+
+
+@app.post("/api/family-members")
+def add_family_member(body: _FamilyMemberBody) -> JSONResponse:
+    """家族メンバーを追加する。"""
+    import sqlite3
+    name = body.name.strip()
+    if not name:
+        return JSONResponse({"error": "name は空にできません"}, status_code=400)
+    try:
+        member_id = gps_db.insert_family_member(name)
+        return JSONResponse({"ok": True, "id": member_id, "name": name}, status_code=201)
+    except sqlite3.IntegrityError:
+        return JSONResponse({"error": f"'{name}' は既に登録されています"}, status_code=409)
+
+
+@app.delete("/api/family-members/{member_id}")
+def remove_family_member(member_id: int) -> JSONResponse:
+    """家族メンバーを削除する。"""
+    gps_db.delete_family_member(member_id)
+    return JSONResponse({"ok": True})
+
+
 # ---- ラズパイからの位置Push ----
 
 class _LocationPush(BaseModel):
@@ -198,8 +236,51 @@ def push_location(body: _LocationPush) -> JSONResponse:
 
 # ---- カメラ写真 ----
 
+async def _analyze_and_notify(photo_id: int, photo_bytes: bytes, recorded_at: str) -> None:
+    """写真から顔を検知し、不明人物の場合はSlackへ通知する（バックグラウンドタスク）。"""
+    from gps_monitor import db as gps_db_inner
+    from gps_web.face_recog import bytes_to_embedding, detect_faces, is_known_family
+    from gps_web.slack_bot import send_person_alert
+
+    result = detect_faces(photo_bytes)
+    if result.faces_found == 0:
+        gps_db_inner.update_photo_person_info(photo_id, person_detected=False, is_family=False)
+        logger.debug("顔なし: photo_id=%d", photo_id)
+        return
+
+    # 登録済み家族の埋め込みと照合
+    stored = gps_db_inner.list_family_embeddings()
+    family_embeddings = [bytes_to_embedding(r["embedding"]) for r in stored]
+    family = is_known_family(result.embeddings, family_embeddings)
+
+    # 誰に一致したかラベルを特定
+    matched_label: str | None = None
+    if family:
+        for emb in result.embeddings:
+            for r in stored:
+                from gps_web.face_recog import _cosine_similarity, FACE_SIMILARITY_THRESHOLD
+                sim = _cosine_similarity(emb, bytes_to_embedding(r["embedding"]))
+                if sim >= FACE_SIMILARITY_THRESHOLD and r.get("label"):
+                    matched_label = r["label"]
+                    break
+            if matched_label:
+                break
+
+    gps_db_inner.update_photo_person_info(
+        photo_id, person_detected=True, is_family=family, family_label=matched_label
+    )
+
+    if family:
+        logger.info("家族を検知: photo_id=%d, label=%s", photo_id, matched_label)
+        return
+
+    logger.info("不明人物を検知: photo_id=%d → Slack通知", photo_id)
+    send_person_alert(photo_id=photo_id, photo_bytes=photo_bytes, recorded_at=recorded_at)
+
+
 @app.post("/api/photo")
 async def upload_photo(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     lat: str = Form(""),
     lon: str = Form(""),
@@ -231,6 +312,10 @@ async def upload_photo(
         alt=alt_val,
         photo_path=filename,
     )
+
+    # 顔検知・通知はバックグラウンドで実行（ラズパイの応答待ちを発生させない）
+    background_tasks.add_task(_analyze_and_notify, photo_id, content, recorded_at)
+
     return JSONResponse({"ok": True, "id": photo_id})
 
 
