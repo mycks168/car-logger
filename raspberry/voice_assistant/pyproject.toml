@@ -12,4 +12,5 @@ dependencies = [
 ]
 
 [tool.uv]
+system-site-packages = true
 dev-dependencies = []
