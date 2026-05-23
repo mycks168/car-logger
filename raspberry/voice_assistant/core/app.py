@@ -390,7 +390,6 @@ class Assistant:
         """ナビエンジンから呼ばれる TTS 読み上げ（会話割り込みなし）。"""
         if self._tts:
             self._tts.submit(text)
-            self._tts.flush()
 
     def _on_nav_state_change(self):
         """ナビ状態が変わったとき地図と Display を更新する。"""
@@ -492,7 +491,6 @@ class Assistant:
         self._nav.stop()
         if self._tts:
             self._tts.submit("案内を終了しました。")
-            self._tts.flush()
 
     def _on_webhook_navigate_pause(self):
         paused = self._nav.toggle_pause()
@@ -507,7 +505,6 @@ class Assistant:
         msg = "案内を一時停止しました。" if paused else "案内を再開します。"
         if self._tts:
             self._tts.submit(msg)
-            self._tts.flush()
 
     def _on_webhook_map_zoom(self, delta: int | None, level: int | None):
         map_mgr = self.display.map_manager
@@ -515,14 +512,12 @@ class Assistant:
             map_mgr.set_zoom(level)
             if self._tts:
                 self._tts.submit(f"ズームレベル{level}にしました。")
-                self._tts.flush()
         elif delta is not None:
             map_mgr.change_zoom(delta)
             new_zoom = map_mgr.zoom
             direction = "ズームイン" if delta > 0 else "ズームアウト"
             if self._tts:
                 self._tts.submit(f"{direction}しました。")
-                self._tts.flush()
 
     def _on_monitor_event(self, event: MonitorEvent):
         if event.kind == "wifi_off":
