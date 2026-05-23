@@ -11,21 +11,21 @@ description: 地図のズームレベルを変更する。「ズームイン」�
 
 **ズームイン（拡大）:**
 ```bash
-curl -s -X POST http://<RASPI_IP>:<WEBHOOK_PORT>/map/zoom \
+curl -s -X POST $RASPI_WEBHOOK_URL/map/zoom \
   -H "Content-Type: application/json" \
   -d '{"delta": 1}'
 ```
 
 **ズームアウト（縮小）:**
 ```bash
-curl -s -X POST http://<RASPI_IP>:<WEBHOOK_PORT>/map/zoom \
+curl -s -X POST $RASPI_WEBHOOK_URL/map/zoom \
   -H "Content-Type: application/json" \
   -d '{"delta": -1}'
 ```
 
 **ズームレベルを絶対値で指定（「ズームを16にして」など）:**
 ```bash
-curl -s -X POST http://<RASPI_IP>:<WEBHOOK_PORT>/map/zoom \
+curl -s -X POST $RASPI_WEBHOOK_URL/map/zoom \
   -H "Content-Type: application/json" \
   -d '{"level": <数値>}'
 ```
@@ -42,6 +42,6 @@ curl -s -X POST http://<RASPI_IP>:<WEBHOOK_PORT>/map/zoom \
 
 ## 注意
 
-- `WEBHOOK_TOKEN` が設定されている場合は `Authorization: Bearer <token>` ヘッダーを追加する
+- `WEBHOOK_TOKEN` が設定されている場合は `Authorization: Bearer $WEBHOOK_TOKEN` ヘッダーを追加する
 - レベルの範囲は 10〜19。範囲外はラズパイ側でクランプされる
 - 「もっと広く」「もっと詳しく」など曖昧な場合は `delta: 1` または `delta: -1` を使う

@@ -8,7 +8,7 @@ description: カーナビの案内を一時停止または再開する。「案�
 ## 手順
 
 ```bash
-curl -s -X POST http://<RASPI_IP>:<WEBHOOK_PORT>/navigate/pause
+curl -s -X POST $RASPI_WEBHOOK_URL/navigate/pause
 ```
 
 レスポンスは `{"status": "toggled"}` のみ。現在の状態はラズパイ側の音声で通知される（「一時停止しました」または「再開します」）。
@@ -17,5 +17,5 @@ curl -s -X POST http://<RASPI_IP>:<WEBHOOK_PORT>/navigate/pause
 
 ## 注意
 
-- `WEBHOOK_TOKEN` が設定されている場合は `Authorization: Bearer <token>` ヘッダーを追加する
+- `WEBHOOK_TOKEN` が設定されている場合は `Authorization: Bearer $WEBHOOK_TOKEN` ヘッダーを追加する
 - 案内を完全に終了したい場合は `/navi-stop` スキルを使う

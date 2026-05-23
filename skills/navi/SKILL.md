@@ -20,10 +20,10 @@ description: カーナビ案内を開始する。ユーザーが目的地を指�
 
 2. **ナビ API を呼び出す**
 
-   `raspberry/voice_assistant/.env` の `WEBHOOK_PORT`（デフォルト 8080）と Tailscale IP を使って POST する。
+   環境変数 `$RASPI_WEBHOOK_URL`（例: `http://100.x.x.x:8080`）を使って POST する。
 
    ```bash
-   curl -s -X POST http://<RASPI_IP>:<WEBHOOK_PORT>/navigate \
+   curl -s -X POST $RASPI_WEBHOOK_URL/navigate \
      -H "Content-Type: application/json" \
      -d '{"lat": <緯度>, "lon": <経度>, "name": "<目的地名>"}'
    ```
@@ -36,5 +36,5 @@ description: カーナビ案内を開始する。ユーザーが目的地を指�
 ## 注意
 
 - Nominatim は日本語の地名に対応している
-- `WEBHOOK_TOKEN` が設定されている場合は `Authorization: Bearer <token>` ヘッダーを追加する
+- `WEBHOOK_TOKEN` が設定されている場合は `Authorization: Bearer $WEBHOOK_TOKEN` ヘッダーを追加する
 - GPS が取得できていない場合は OSRM が経路を計算できないため、その旨を伝える

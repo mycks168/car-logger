@@ -174,6 +174,13 @@ curl -X POST http://localhost:8080/map/zoom \
 
 ## 設定一覧
 
+### スキル（`skills/` / ルートの `.env`）
+
+| 変数名 | 説明 |
+|---|---|
+| `RASPI_WEBHOOK_URL` | ラズパイ Webhook の完全ベースURL（例: `http://100.x.x.x:8080`）。スキルから `/navigate` 等を呼ぶ際に使用 |
+| `WEBHOOK_TOKEN` | Webhook Bearer トークン（`WEBHOOK_TOKEN` を設定している場合のみ） |
+
 ### サーバ側（`server/.env`）
 
 | 変数名 | デフォルト | 説明 |
