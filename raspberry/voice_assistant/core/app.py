@@ -87,6 +87,7 @@ class Assistant:
                 on_navigate_stop=self._on_webhook_navigate_stop,
                 on_navigate_pause=self._on_webhook_navigate_pause,
                 on_map_zoom=self._on_webhook_map_zoom,
+                on_get_location=self._on_webhook_get_location,
             )
             self._webhook.start()
 
@@ -472,6 +473,15 @@ class Assistant:
             total_dist_m=state.total_distance_m,
             total_dur_s=state.total_duration_s,
         )
+
+    def _on_webhook_get_location(self) -> dict:
+        lat, lon, speed, has_fix = self.display.map_manager.get_gps()
+        return {
+            "has_fix": has_fix,
+            "lat": lat,
+            "lon": lon,
+            "speed_kmh": speed,
+        }
 
     def _on_webhook_navigate(self, lat: float, lon: float, name: str):
         ok = self._nav.start(lat, lon, name)

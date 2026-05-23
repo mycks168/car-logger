@@ -1,6 +1,9 @@
 """Webhook HTTP サーバー。外部からナビ操作・TTS 読み上げを受け付ける。
 
 エンドポイント:
+    GET  /location
+        → 現在の GPS 位置情報を返す
+
     POST /speak
         {"text": "喋る内容", "title": "画面表示タイトル（省略可）"}
 
@@ -40,19 +43,22 @@ class WebhookServer:
         on_navigate_stop: Callable[[], None] | None = None,
         on_navigate_pause: Callable[[], None] | None = None,
         on_map_zoom: Callable[[int | None, int | None], None] | None = None,
+        on_get_location: Callable[[], dict] | None = None,
     ):
         """
-        on_message(text, title)   : /speak — TTS キューに積む
+        on_message(text, title)    : /speak — TTS キューに積む
         on_navigate(lat, lon, name): /navigate — 経路案内を開始する
-        on_navigate_stop()        : /navigate/stop — 案内停止
-        on_navigate_pause()       : /navigate/pause — 一時停止/再開
-        on_map_zoom(delta, level) : /map/zoom — ズーム変更（delta か level どちらか non-None）
+        on_navigate_stop()         : /navigate/stop — 案内停止
+        on_navigate_pause()        : /navigate/pause — 一時停止/再開
+        on_map_zoom(delta, level)  : /map/zoom — ズーム変更（delta か level どちらか non-None）
+        on_get_location()          : /location — 現在の GPS 情報を dict で返す
         """
         self._on_message = on_message
         self._on_navigate = on_navigate or (lambda lat, lon, name: None)
         self._on_navigate_stop = on_navigate_stop or (lambda: None)
         self._on_navigate_pause = on_navigate_pause or (lambda: None)
         self._on_map_zoom = on_map_zoom or (lambda delta, level: None)
+        self._on_get_location = on_get_location or (lambda: {})
 
         self._server = HTTPServer(("", config.WEBHOOK_PORT), self._make_handler())
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
@@ -70,6 +76,7 @@ class WebhookServer:
         on_navigate_stop = self._on_navigate_stop
         on_navigate_pause = self._on_navigate_pause
         on_map_zoom = self._on_map_zoom
+        on_get_location = self._on_get_location
 
         class _Handler(BaseHTTPRequestHandler):
             def log_message(self, fmt, *args):
@@ -95,6 +102,16 @@ class WebhookServer:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+
+            def do_GET(self):
+                if not self._check_auth():
+                    self._respond(401, b"Unauthorized")
+                    return
+                if self.path.rstrip("/") == "/location":
+                    data = on_get_location()
+                    self._respond_json(200, data)
+                else:
+                    self._respond(404, b"Not Found")
 
             def _respond_json(self, code: int, obj: dict):
                 body = json.dumps(obj, ensure_ascii=False).encode()

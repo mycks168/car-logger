@@ -71,6 +71,30 @@
 
 `WEBHOOK_ENABLED=true` にすると voice_assistant が HTTP サーバを起動し、外部から TTS 読み上げやナビ操作ができる。
 
+#### `GET /location`
+
+現在の GPS 位置情報を返す。MapManager のキャッシュ値を使うため gps_server への追加リクエストは発生しない。
+
+```bash
+curl http://localhost:8082/location
+```
+
+**レスポンス例:**
+```json
+{
+  "has_fix": true,
+  "lat": 35.6812,
+  "lon": 139.7671,
+  "speed_kmh": 42.3
+}
+```
+
+| フィールド | 説明 |
+|---|---|
+| `has_fix` | GPS 衛星を補足中かどうか |
+| `lat`, `lon` | 現在位置（補足できていない場合は最終既知位置） |
+| `speed_kmh` | 速度（未取得の場合は `null`） |
+
 #### `POST /speak`
 
 **リクエスト（JSON）:**
