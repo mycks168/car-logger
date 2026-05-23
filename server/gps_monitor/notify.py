@@ -57,20 +57,21 @@ def send_detection(
     webhook_url: str,
     bot_token: str,
     channel_id: str,
-    detected_items: str,
+    new_items: str,
+    resident_items: str,
     captured_at: str,
     photo_path: Path,
 ) -> None:
     """
     画像解析の検知結果をSlackに通知する。
     Bot Token + Channel ID が設定されていれば画像添付、未設定ならWebhookでテキストのみ。
-    captured_at はラズパイ撮影時刻（ISO 8601）。
+    captured_at はラズパイ撮影時刻（ISO 8601）。photo_path はアノテーション済み画像。
     """
-    text = (
-        f":rotating_light: *車両カメラ検知*\n"
-        f"*検知内容*: {detected_items}\n"
-        f"*撮影時刻*: {captured_at}"
-    )
+    lines = [":rotating_light: *車両カメラ検知*", f"*新規*: {new_items}"]
+    if resident_items:
+        lines.append(f"*常駐（変化なし）*: {resident_items}")
+    lines.append(f"*撮影時刻*: {captured_at}")
+    text = "\n".join(lines)
     if bot_token and channel_id:
         _send_with_image(bot_token, channel_id, text, photo_path)
     elif webhook_url:

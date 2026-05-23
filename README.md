@@ -296,7 +296,8 @@ sudo systemctl status gps-monitor temp-monitor gps-web
 | `YOLO_MODEL` | `yolo11m.pt` | YOLOモデル名（初回起動時に自動ダウンロード） |
 | `YOLO_CONF` | `0.5` | YOLO検知の信頼度閾値（0.0〜1.0） |
 | `DETECT_COOLDOWN_SECONDS` | `300` | 検知通知のクールダウン時間（秒） |
-| `NEW_OBJECT_IOU_THRESHOLD` | `0.5` | 前フレームと同一物体とみなすIoU閾値（常駐車両の除外に使用） |
+| `NEW_OBJECT_IOU_THRESHOLD` | `0.5` | 常駐物体とみなすIoU閾値（値を下げると緩く除外） |
+| `EMPTY_TOLERANCE` | `2` | 何フレーム連続0件で「本当に何もない」とみなすか（雲など一時的な検知失敗に対するバッファ） |
 
 ### ラズパイ側（`raspberry/.env`）
 

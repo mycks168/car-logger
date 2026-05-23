@@ -10,6 +10,8 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "python-multipart>=0.0.9",
     "ultralytics>=8.3",
+    "opencv-python-headless>=4.9",
+    "Pillow>=10.0",
 ]
 
 [build-system]
