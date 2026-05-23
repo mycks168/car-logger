@@ -14,6 +14,10 @@ _TILE_SIZE = 256
 _USER_AGENT = "voice-assistant/1.0 (Raspberry Pi in-car)"
 _TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 
+# ズームレベルの許容範囲
+_ZOOM_MIN = 10
+_ZOOM_MAX = 19
+
 
 def _lat_lon_to_tile_frac(lat: float, lon: float, zoom: int) -> tuple[float, float]:
     """(lat, lon) → タイル座標（小数）を返す。"""
@@ -22,6 +26,24 @@ def _lat_lon_to_tile_frac(lat: float, lon: float, zoom: int) -> tuple[float, flo
     lat_rad = math.radians(lat)
     y = (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n
     return x, y
+
+
+def _lat_lon_to_screen(
+    lat: float, lon: float,
+    center_lat: float, center_lon: float,
+    zoom: int, screen_w: int, screen_h: int,
+) -> tuple[int, int] | None:
+    """緯度経度をスクリーン座標に変換する。範囲外なら None。"""
+    cx_frac, cy_frac = _lat_lon_to_tile_frac(center_lat, center_lon, zoom)
+    px_frac, py_frac = _lat_lon_to_tile_frac(lat, lon, zoom)
+    dx = (px_frac - cx_frac) * _TILE_SIZE
+    dy = (py_frac - cy_frac) * _TILE_SIZE
+    sx = int(screen_w // 2 + dx)
+    sy = int(screen_h // 2 + dy)
+    margin = 60
+    if -margin <= sx <= screen_w + margin and -margin <= sy <= screen_h + margin:
+        return sx, sy
+    return None
 
 
 class MapManager:
@@ -46,6 +68,14 @@ class MapManager:
         self._render_cache = None
         self._render_cache_key: tuple | None = None
 
+        # ナビ・POI データ（外部から set する）
+        self._nav_lock = threading.Lock()
+        self._route_coords: list[tuple[float, float]] = []   # (lat, lon) リスト
+        self._dest: tuple[float, float] | None = None         # (lat, lon)
+        self._dest_name: str = ""
+        self._pois: list = []                                 # POI オブジェクトのリスト
+        self._nav_active: bool = False
+
         self._stop = threading.Event()
         self._gps_thread = threading.Thread(target=self._poll_gps, daemon=True, name="gps-poller")
 
@@ -60,6 +90,50 @@ class MapManager:
         """(lat, lon, speed_kmh, has_fix) を返す。"""
         with self._gps_lock:
             return self._lat, self._lon, self._speed, self._has_fix
+
+    def set_zoom(self, zoom: int):
+        """ズームレベルを変更する。"""
+        new_zoom = max(_ZOOM_MIN, min(_ZOOM_MAX, zoom))
+        if new_zoom != self._zoom:
+            self._zoom = new_zoom
+            self.invalidate_cache()
+            log.info("ズームレベル変更: %d", new_zoom)
+
+    def change_zoom(self, delta: int):
+        """ズームレベルを相対的に変更する。"""
+        self.set_zoom(self._zoom + delta)
+
+    @property
+    def zoom(self) -> int:
+        return self._zoom
+
+    def set_route(
+        self,
+        route_coords: list[tuple[float, float]],
+        dest: tuple[float, float] | None,
+        dest_name: str = "",
+    ):
+        """経路座標・目的地を設定する。route_coords が空なら経路を消去。"""
+        with self._nav_lock:
+            self._route_coords = route_coords
+            self._dest = dest
+            self._dest_name = dest_name
+            self._nav_active = bool(route_coords)
+        self.invalidate_cache()
+
+    def clear_route(self):
+        with self._nav_lock:
+            self._route_coords = []
+            self._dest = None
+            self._dest_name = ""
+            self._nav_active = False
+        self.invalidate_cache()
+
+    def set_pois(self, pois: list):
+        """POI リストを更新する。"""
+        with self._nav_lock:
+            self._pois = pois
+        self.invalidate_cache()
 
     def get_tile(self, z: int, x: int, y: int) -> bytes | None:
         """タイル PNG を返す。メモリ → ディスク → ネットの順で探す。"""
@@ -102,8 +176,14 @@ class MapManager:
             return None
 
         zoom = self._zoom
-        # GPS が動いていない限り再合成しない（Pi3 の負荷軽減）
-        cache_key = (round(lat, 5), round(lon, 5), screen_w, screen_h, zoom)
+        with self._nav_lock:
+            route_coords = list(self._route_coords)
+            dest = self._dest
+            dest_name = self._dest_name
+            pois = list(self._pois)
+
+        cache_key = (round(lat, 5), round(lon, 5), screen_w, screen_h, zoom,
+                     len(route_coords), dest)
         if self._render_cache_key == cache_key and self._render_cache is not None:
             return self._render_cache
 
@@ -141,12 +221,42 @@ class MapManager:
         if not any_tile:
             return None
 
+        # ── 経路ポリライン描画 ───────────────────────────────────────────────────
+        if route_coords:
+            screen_points = []
+            for rlat, rlon in route_coords:
+                pt = _lat_lon_to_screen(rlat, rlon, lat, lon, zoom, screen_w, screen_h)
+                if pt:
+                    screen_points.append(pt)
+            if len(screen_points) >= 2:
+                # 外枠（白）
+                pygame.draw.lines(surf, (255, 255, 255), False, screen_points, 8)
+                # 経路本体（青）
+                pygame.draw.lines(surf, (30, 120, 255), False, screen_points, 5)
+
+        # ── 目的地マーカー ───────────────────────────────────────────────────────
+        if dest:
+            pt = _lat_lon_to_screen(dest[0], dest[1], lat, lon, zoom, screen_w, screen_h)
+            if pt:
+                dx, dy = pt
+                pygame.draw.circle(surf, (255, 60, 60), (dx, dy), 14)
+                pygame.draw.circle(surf, (255, 255, 255), (dx, dy), 10)
+                pygame.draw.circle(surf, (255, 60, 60), (dx, dy), 6)
+
+        # ── POI マーカー ─────────────────────────────────────────────────────────
+        for poi in pois:
+            pt = _lat_lon_to_screen(poi.lat, poi.lon, lat, lon, zoom, screen_w, screen_h)
+            if pt:
+                px, py = pt
+                pygame.draw.circle(surf, poi.color, (px, py), 8)
+                pygame.draw.circle(surf, (255, 255, 255), (px, py), 8, 2)
+
         self._render_cache = surf
         self._render_cache_key = cache_key
         return surf
 
     def invalidate_cache(self):
-        """GPS 位置が変わったときにレンダーキャッシュを破棄する。"""
+        """レンダーキャッシュを破棄する。"""
         self._render_cache = None
         self._render_cache_key = None
 
@@ -159,7 +269,6 @@ class MapManager:
                     new_lat = data.get("lat")
                     new_lon = data.get("lon")
                     with self._gps_lock:
-                        # 位置が変わったらレンダーキャッシュを破棄
                         if new_lat != self._lat or new_lon != self._lon:
                             self.invalidate_cache()
                         self._lat = new_lat

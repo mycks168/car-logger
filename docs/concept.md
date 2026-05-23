@@ -2,13 +2,14 @@
 
 ## 概要
 
-car-logger-ai は、車両盗難防止を目的としたラズパイベースの総合モニタリングシステムです。GPS ロガー・温度センサー・AI 音声アシスタントの3機能を1台のラズパイ3に統合し、Tailscale VPN 経由でサーバと連携します。
+car-logger-ai は、車両盗難防止・ドライブ支援を目的としたラズパイベースの総合モニタリングシステムです。GPS ロガー・温度センサー・AI 音声アシスタント・カーナビの4機能を1台のラズパイ3に統合し、Tailscale VPN 経由でサーバと連携します。
 
 ## 設計思想
 
 - **常時監視・自動通知**: GPS 補足が途切れたとき（盗難・移動の疑い）に Slack へ自動通知する
 - **位置補完**: GPS が取れないトンネル内などでは WiFi スキャン + Google Geolocation API で位置を補完する
 - **音声アシスタント**: 運転中でもハンズフリーで AI に話しかけられるよう PTT ボタン方式を採用
+- **カーナビ連携**: OpenClaw スキル経由で目的地を指示するとターンバイターン音声案内を行う
 - **独立したプロセス構成**: GPS サーバ・音声アシスタント・サーバ側監視はそれぞれ独立したプロセスとして動作し、相互に依存しない
 
 ## システム構成
@@ -18,11 +19,13 @@ car-logger-ai は、車両盗難防止を目的としたラズパイベースの
      │ UART/USB + /sys/bus/w1/devices/ + GPIO
 [Raspberry Pi 3]
      ├── gps_server  ─ FastAPI (GPS + 温度 API, port 8080)
-     └── voice_assistant ─ PTT AI アシスタント
+     └── voice_assistant ─ PTT AI アシスタント兼カーナビ
            ├── STT: OpenAI Whisper API または STT Gateway
            ├── LLM: OpenClaw (Claude 等)
            ├── TTS: VoiceVox または OpenAI TTS
-           └── 地図表示: gps_server から GPS 取得 → Leaflet タイル
+           ├── 地図表示: OSM タイル + 経路ポリライン + POI
+           ├── ナビ: OSRM 経路計算 + ターンバイターン音声案内
+           └── Webhook: POST /navigate, /map/zoom 等で外部から操作
      │ iPhone USBテザリング (インターネット)
      │ Tailscale VPN
 [サーバ]
@@ -30,13 +33,15 @@ car-logger-ai は、車両盗難防止を目的としたラズパイベースの
      ├─ GPS履歴 → data/gps_history.db
      ├─ 温度履歴 → data/temp_history.db
      ├─ WiFi測位 → Google Geolocation API → data/gps_history.db
-     └─ WebUI (GPS軌跡 + WiFi測位 + 温度グラフ, port 8081)
+     ├─ WebUI (GPS軌跡 + WiFi測位 + 温度グラフ, port 8081)
+     └─ OSRM (ghcr.io/project-osrm/osrm-backend, port 5000) ─ 経路計算
 ```
 
 | コンポーネント | 役割 |
 |---|---|
 | `raspberry/gps_server/` | ラズパイ上で動作するGPS + 温度 APIサーバ |
-| `raspberry/voice_assistant/` | PTTボタン操作のAI音声アシスタント（STT/LLM/TTS） |
+| `raspberry/voice_assistant/` | PTTボタン操作のAI音声アシスタント兼カーナビ |
+| `raspberry/voice_assistant/navigation/` | OSRM 経路計算・ターン案内エンジン・POI 検索 |
 | `server/gps_monitor/` | GPS監視・Slack通知 + GPS履歴をSQLiteへ保存 |
 | `server/temp_monitor/` | 温度定期取得・SQLiteへ保存 |
 | `server/gps_web/` | GPS軌跡・温度グラフ表示WebUI |
@@ -78,14 +83,17 @@ car-logger-ai/
 │       │   ├── app.py          # メインアシスタントロジック（状態機械）
 │       │   ├── session_manager.py  # OpenClaw セッション管理
 │       │   └── system_monitor.py  # バッテリー・WiFi 状態監視
+│       ├── navigation/
+│       │   ├── engine.py       # OSRM 経路計算・ターンバイターン案内エンジン
+│       │   └── poi.py          # Overpass API によるガソリンスタンド等 POI 検索
 │       ├── hardware/
 │       │   ├── audio.py        # 録音（arecord）・音量チェック
 │       │   ├── button.py       # PTT ボタン（GPIO 割り込み）
 │       │   ├── system.py       # バッテリー・WiFi 状態読み取り
 │       │   └── pi3/
 │       │       ├── board.py    # ラズパイ Pi3 ボード初期化
-│       │       ├── display.py  # pygame キャラクター＋テキスト表示
-│       │       └── map_tiles.py  # OpenStreetMap タイル取得・描画
+│       │       ├── display.py  # pygame キャラクター＋テキスト＋ナビパネル表示
+│       │       └── map_tiles.py  # OSM タイル取得・経路ポリライン・POI 描画
 │       └── services/
 │           ├── llm/
 │           │   └── openclaw.py     # OpenClaw ストリーミング応答
@@ -96,7 +104,7 @@ car-logger-ai/
 │           │   ├── voicevox.py     # VoiceVox TTS（非同期キュー再生）
 │           │   ├── openai.py       # OpenAI TTS
 │           │   └── filter.py       # TTS フィルター（コードブロック変換など）
-│           └── webhook.py          # POST /speak Webhook サーバ
+│           └── webhook.py          # POST /speak /navigate /map/zoom 等 Webhook サーバ
 ├── server/                     # サーバ側
 │   ├── pyproject.toml
 │   ├── sensor_map.json.example  # センサーID⇔場所名マッピングのサンプル

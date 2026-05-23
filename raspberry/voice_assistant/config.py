@@ -100,6 +100,14 @@ GPS_SERVER_URL = os.environ.get("GPS_SERVER_URL", "http://localhost:8080")
 MAP_ZOOM = int(os.environ.get("MAP_ZOOM", "15"))
 MAP_TILE_CACHE_DIR = os.environ.get("MAP_TILE_CACHE_DIR", "/tmp/maptiles")
 
+# ナビゲーション設定
+OSRM_BASE_URL = os.environ.get("OSRM_BASE_URL", "http://localhost:5000")
+OVERPASS_URL = os.environ.get("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+NAV_ANNOUNCE_DISTANCE_M = int(os.environ.get("NAV_ANNOUNCE_DISTANCE_M", "300"))
+NAV_ARRIVE_DISTANCE_M = int(os.environ.get("NAV_ARRIVE_DISTANCE_M", "50"))
+POI_SEARCH_RADIUS_M = int(os.environ.get("POI_SEARCH_RADIUS_M", "2000"))
+POI_UPDATE_DISTANCE_M = int(os.environ.get("POI_UPDATE_DISTANCE_M", "500"))
+
 
 def print_config():
     print(f"STT_ENGINE              = {STT_ENGINE}")

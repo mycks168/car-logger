@@ -18,6 +18,8 @@ from services.llm import stream_response
 from core.system_monitor import SystemMonitor, MonitorEvent
 from core.session_manager import SessionManager
 from services.webhook import WebhookServer
+from navigation.engine import NavigationEngine
+from navigation.poi import POIManager
 
 log = logging.getLogger("voice-assistant")
 
@@ -66,9 +68,26 @@ class Assistant:
         self._monitor = SystemMonitor(on_event=self._on_monitor_event)
         self._monitor.start()
 
+        # ナビゲーションエンジン
+        self._nav = NavigationEngine(
+            get_gps=self.display.map_manager.get_gps,
+            on_speak=self._nav_speak,
+            on_state_change=self._on_nav_state_change,
+        )
+
+        # POI マネージャ
+        self._poi = POIManager(get_gps=self.display.map_manager.get_gps)
+        self._poi.start()
+
         self._webhook: WebhookServer | None = None
         if config.WEBHOOK_ENABLED:
-            self._webhook = WebhookServer(on_message=self._on_webhook_message)
+            self._webhook = WebhookServer(
+                on_message=self._on_webhook_message,
+                on_navigate=self._on_webhook_navigate,
+                on_navigate_stop=self._on_webhook_navigate_stop,
+                on_navigate_pause=self._on_webhook_navigate_pause,
+                on_map_zoom=self._on_webhook_map_zoom,
+            )
             self._webhook.start()
 
     def _is_stale(self, my_gen: int) -> bool:
@@ -366,6 +385,135 @@ class Assistant:
         )
         self._announce_queue.put(event)
 
+    def _nav_speak(self, text: str):
+        """ナビエンジンから呼ばれる TTS 読み上げ（会話割り込みなし）。"""
+        if self._tts:
+            self._tts.submit(text)
+            self._tts.flush()
+
+    def _on_nav_state_change(self):
+        """ナビ状態が変わったとき地図と Display を更新する。"""
+        state = self._nav.get_state()
+        map_mgr = self.display.map_manager
+
+        if state.active:
+            # 経路・目的地を地図にセット
+            map_mgr.set_route(
+                route_coords=state.route_coords,
+                dest=(state.dest_lat, state.dest_lon),
+                dest_name=state.dest_name,
+            )
+            # 次のステップ情報を取得
+            steps = state.steps
+            idx = state.step_index
+            if idx < len(steps):
+                next_step = steps[idx]
+                next_instr = next_step.instruction
+                next_dist = 0.0
+                lat, lon, _, _ = map_mgr.get_gps()
+                if lat is not None:
+                    import math
+                    dlat = math.radians(next_step.lat - lat)
+                    dlon = math.radians(next_step.lon - lon)
+                    a = (math.sin(dlat / 2) ** 2
+                         + math.cos(math.radians(lat))
+                         * math.cos(math.radians(next_step.lat))
+                         * math.sin(dlon / 2) ** 2)
+                    next_dist = 6_371_000 * 2 * math.atan2(
+                        math.sqrt(a), math.sqrt(1 - a))
+            else:
+                next_instr = "目的地"
+                next_dist = 0.0
+
+            self.display.update_nav(
+                active=True,
+                paused=state.paused,
+                next_instruction=next_instr,
+                next_distance_m=next_dist,
+                dest_name=state.dest_name,
+                total_dist_m=state.total_distance_m,
+                total_dur_s=state.total_duration_s,
+            )
+        else:
+            map_mgr.clear_route()
+            self.display.update_nav(active=False)
+
+    def _refresh_nav_display(self):
+        """地図再描画なしでナビパネルの数値だけ更新する（run() ループから毎秒呼ぶ）。"""
+        state = self._nav.get_state()
+        if not state.active:
+            return
+        import math
+        steps = state.steps
+        idx = state.step_index
+        if idx < len(steps):
+            next_step = steps[idx]
+            next_instr = next_step.instruction
+            lat, lon, _, _ = self.display.map_manager.get_gps()
+            if lat is not None and lon is not None:
+                dlat = math.radians(next_step.lat - lat)
+                dlon = math.radians(next_step.lon - lon)
+                a = (math.sin(dlat / 2) ** 2
+                     + math.cos(math.radians(lat))
+                     * math.cos(math.radians(next_step.lat))
+                     * math.sin(dlon / 2) ** 2)
+                next_dist = 6_371_000 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            else:
+                next_dist = 0.0
+        else:
+            next_instr = "目的地"
+            next_dist = 0.0
+        self.display.update_nav(
+            active=True,
+            paused=state.paused,
+            next_instruction=next_instr,
+            next_distance_m=next_dist,
+            dest_name=state.dest_name,
+            total_dist_m=state.total_distance_m,
+            total_dur_s=state.total_duration_s,
+        )
+
+    def _on_webhook_navigate(self, lat: float, lon: float, name: str):
+        ok = self._nav.start(lat, lon, name)
+        if not ok:
+            self._nav_speak("経路の計算に失敗しました。")
+
+    def _on_webhook_navigate_stop(self):
+        self._nav.stop()
+        if self._tts:
+            self._tts.submit("案内を終了しました。")
+            self._tts.flush()
+
+    def _on_webhook_navigate_pause(self):
+        paused = self._nav.toggle_pause()
+        state = self._nav.get_state()
+        self.display.update_nav(
+            active=state.active,
+            paused=paused,
+            dest_name=state.dest_name,
+            total_dist_m=state.total_distance_m,
+            total_dur_s=state.total_duration_s,
+        )
+        msg = "案内を一時停止しました。" if paused else "案内を再開します。"
+        if self._tts:
+            self._tts.submit(msg)
+            self._tts.flush()
+
+    def _on_webhook_map_zoom(self, delta: int | None, level: int | None):
+        map_mgr = self.display.map_manager
+        if level is not None:
+            map_mgr.set_zoom(level)
+            if self._tts:
+                self._tts.submit(f"ズームレベル{level}にしました。")
+                self._tts.flush()
+        elif delta is not None:
+            map_mgr.change_zoom(delta)
+            new_zoom = map_mgr.zoom
+            direction = "ズームイン" if delta > 0 else "ズームアウト"
+            if self._tts:
+                self._tts.submit(f"{direction}しました。")
+                self._tts.flush()
+
     def _on_monitor_event(self, event: MonitorEvent):
         if event.kind == "wifi_off":
             self._wifi_connected = False
@@ -442,11 +590,21 @@ class Assistant:
     def run(self):
         self._go_idle()
         log.info("assistant ready -- press button to talk")
+        _last_poi_sync = 0.0
 
         try:
             while not self._shutdown.is_set():
                 self._shutdown.wait(timeout=1.0)
                 worker_busy = self._worker_thread is not None and self._worker_thread.is_alive()
+
+                # POI を定期的に地図へ反映（60秒ごと）
+                now = time.monotonic()
+                if now - _last_poi_sync >= 60.0:
+                    self.display.map_manager.set_pois(self._poi.get_pois())
+                    _last_poi_sync = now
+
+                # ナビパネル表示を毎秒更新（残り距離・時間を再計算するが地図再描画は不要）
+                self._refresh_nav_display()
 
                 with self._critical_lock:
                     crit = self._critical_event
@@ -486,6 +644,8 @@ class Assistant:
             self._tts.cancel()
         self.display.stop_character()
         self._monitor.stop()
+        self._nav.shutdown()
+        self._poi.stop()
         if self._webhook:
             self._webhook.stop()
         if self._worker_thread and self._worker_thread.is_alive():

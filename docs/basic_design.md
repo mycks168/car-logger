@@ -69,7 +69,7 @@
 
 ### Webhook API（voice_assistant）
 
-`WEBHOOK_ENABLED=true` にすると voice_assistant が HTTP サーバを起動し、外部からテキストを送って TTS 読み上げさせることができる。
+`WEBHOOK_ENABLED=true` にすると voice_assistant が HTTP サーバを起動し、外部から TTS 読み上げやナビ操作ができる。
 
 #### `POST /speak`
 
@@ -105,7 +105,70 @@ curl -X POST http://localhost:8080/speak \
 | `200 {"status": "queued"}` | キューに積まれた |
 | `400` | `text` が空 |
 | `401` | 認証エラー |
-| `404` | パスが `/speak` 以外 |
+| `404` | パスが未定義 |
+
+#### `POST /navigate`
+
+目的地の緯度経度を指定して経路案内を開始する。OSRM で経路計算し、地図に経路を表示してターンバイターン音声案内を開始する。
+
+**リクエスト（JSON）:**
+```bash
+curl -X POST http://localhost:8080/navigate \
+  -H "Content-Type: application/json" \
+  -d '{"lat": 35.658, "lon": 139.701, "name": "渋谷駅"}'
+```
+
+| フィールド | 説明 |
+|---|---|
+| `lat` | 目的地の緯度（必須） |
+| `lon` | 目的地の経度（必須） |
+| `name` | 目的地名（省略時は「目的地」） |
+
+| レスポンス | 意味 |
+|---|---|
+| `200 {"status": "starting"}` | 経路計算を開始（非同期） |
+| `400` | lat/lon が未指定または不正 |
+
+#### `POST /navigate/stop`
+
+案内を停止して経路を消去する。
+
+```bash
+curl -X POST http://localhost:8080/navigate/stop
+```
+
+#### `POST /navigate/pause`
+
+案内を一時停止 / 再開する（トグル）。一時停止中はナビパネルに「⏸ 案内一時停止中」と表示される。
+
+```bash
+curl -X POST http://localhost:8080/navigate/pause
+```
+
+#### `POST /map/zoom`
+
+地図のズームレベルを変更する。
+
+**相対変更（ズームイン / ズームアウト）:**
+```bash
+curl -X POST http://localhost:8080/map/zoom \
+  -H "Content-Type: application/json" \
+  -d '{"delta": 1}'    # ズームイン
+  # または
+  -d '{"delta": -1}'   # ズームアウト
+```
+
+**絶対値指定:**
+```bash
+curl -X POST http://localhost:8080/map/zoom \
+  -H "Content-Type: application/json" \
+  -d '{"level": 16}'
+```
+
+| フィールド | 説明 |
+|---|---|
+| `delta` | ズームレベルの相対変化量（正でイン、負でアウト） |
+| `level` | ズームレベルの絶対値（10〜19） |
 
 ---
 
@@ -239,6 +302,17 @@ curl -X POST http://localhost:8080/speak \
 | `GPS_SERVER_URL` | `http://localhost:8080` | gps_server の URL（地図表示用） |
 | `MAP_ZOOM` | `15` | 地図ズームレベル（14=広域 15=町丁目 16=建物） |
 | `MAP_TILE_CACHE_DIR` | `/tmp/maptiles` | タイルキャッシュ保存先 |
+
+#### ナビゲーション
+
+| 変数名 | デフォルト | 説明 |
+|---|---|---|
+| `OSRM_BASE_URL` | `http://localhost:5000` | OSRM 経路計算サーバの URL |
+| `OVERPASS_URL` | `https://overpass-api.de/api/interpreter` | Overpass API URL（POI 検索用） |
+| `NAV_ANNOUNCE_DISTANCE_M` | `300` | ターン案内を行う距離（メートル） |
+| `NAV_ARRIVE_DISTANCE_M` | `50` | 目的地到着と判定する距離（メートル） |
+| `POI_SEARCH_RADIUS_M` | `2000` | POI 検索半径（メートル） |
+| `POI_UPDATE_DISTANCE_M` | `500` | POI を再検索する移動距離の閾値（メートル） |
 
 #### Webhook サーバ
 

@@ -150,6 +150,16 @@ class Display:
         self._tts = None
         self._session_name = ""
 
+        # ナビ情報（ナビエンジンから更新される）
+        self._nav_lock = threading.Lock()
+        self._nav_active = False
+        self._nav_paused = False
+        self._nav_next_instruction = ""
+        self._nav_next_distance_m = 0.0
+        self._nav_dest_name = ""
+        self._nav_total_dist_m = 0.0
+        self._nav_total_dur_s = 0.0
+
         self._map = MapManager(
             gps_url=config.GPS_SERVER_URL + "/gps",
             zoom=config.MAP_ZOOM,
@@ -292,6 +302,15 @@ class Display:
                 sleeping = self._sleeping
                 tts_player = self._tts
                 session_name = self._session_name
+
+            with self._nav_lock:
+                nav_active = self._nav_active
+                nav_paused = self._nav_paused
+                nav_next_instr = self._nav_next_instruction
+                nav_next_dist = self._nav_next_distance_m
+                nav_dest = self._nav_dest_name
+                nav_total_dist = self._nav_total_dist_m
+                nav_total_dur = self._nav_total_dur_s
 
             # ── 1. 地図背景（常時） ───────────────────────────────────────────
             map_surf = self._map.render_map(w, h, pygame)
@@ -451,7 +470,17 @@ class Display:
                                     bsc.set_alpha(max(0, min(255, alpha)))
                                     screen.blit(bsc, (blit_x, blit_y))
 
-            # ── 5. テキストオーバーレイ（スリープ時は非表示） ────────────────
+            # ── 5. ナビパネル（案内中のみ、左下） ───────────────────────────────
+            if nav_active and not sleeping:
+                _draw_nav_panel(
+                    screen, w, h, pygame,
+                    font_large, font_medium, font_small,
+                    nav_next_instr, nav_next_dist,
+                    nav_dest, nav_total_dist, nav_total_dur,
+                    nav_paused,
+                )
+
+            # ── 6. テキストオーバーレイ（スリープ時は非表示） ────────────────
             if not sleeping:
                 PAD = 16
                 # 応答テキスト（画面下部、アバターの左側まで）
@@ -573,6 +602,81 @@ class Display:
     def set_session_name(self, name: str):
         with self._lock:
             self._session_name = name
+
+    def update_nav(
+        self,
+        active: bool,
+        paused: bool = False,
+        next_instruction: str = "",
+        next_distance_m: float = 0.0,
+        dest_name: str = "",
+        total_dist_m: float = 0.0,
+        total_dur_s: float = 0.0,
+    ):
+        """ナビ情報を更新する（ナビエンジンから呼ばれる）。"""
+        with self._nav_lock:
+            self._nav_active = active
+            self._nav_paused = paused
+            self._nav_next_instruction = next_instruction
+            self._nav_next_distance_m = next_distance_m
+            self._nav_dest_name = dest_name
+            self._nav_total_dist_m = total_dist_m
+            self._nav_total_dur_s = total_dur_s
+
+    @property
+    def map_manager(self) -> MapManager:
+        """MapManager への参照（ナビエンジンが経路をセットするために使用）。"""
+        return self._map
+
+
+def _draw_nav_panel(
+    screen, w: int, h: int, pygame,
+    font_large, font_medium, font_small,
+    next_instr: str, next_dist_m: float,
+    dest_name: str, total_dist_m: float, total_dur_s: float,
+    paused: bool,
+) -> None:
+    """ナビ情報パネルを画面左下に描画する。"""
+    PAD = 12
+    PANEL_W = 340
+    PANEL_H = 110
+    panel_x = PAD
+    panel_y = h - PANEL_H - PAD
+
+    bg = pygame.Surface((PANEL_W, PANEL_H), pygame.SRCALPHA)
+    bg.fill((0, 0, 0, 210))
+    screen.blit(bg, (panel_x, panel_y))
+
+    # 一時停止中の表示
+    if paused:
+        pause_s = font_large.render("⏸ 案内一時停止中", True, (255, 200, 60))
+        screen.blit(pause_s, (panel_x + 10, panel_y + (PANEL_H - pause_s.get_height()) // 2))
+        return
+
+    y_cur = panel_y + 8
+
+    # 次の案内（方向 + 距離）
+    if next_dist_m > 0 and next_instr:
+        if next_dist_m >= 1000:
+            dist_str = f"{next_dist_m / 1000:.1f}km先"
+        else:
+            dist_str = f"{int(next_dist_m)}m先"
+        instr_s = font_large.render(f"↗ {dist_str} {next_instr}", True, (255, 255, 255))
+        screen.blit(instr_s, (panel_x + 8, y_cur))
+        y_cur += instr_s.get_height() + 4
+
+    # 目的地名
+    if dest_name:
+        dest_s = font_small.render(f"目的地: {dest_name}", True, (200, 200, 200))
+        screen.blit(dest_s, (panel_x + 8, y_cur))
+        y_cur += dest_s.get_height() + 2
+
+    # 残距離・残時間
+    if total_dist_m > 0:
+        km_str = f"{total_dist_m / 1000:.1f}km"
+        min_str = f"{int(total_dur_s / 60)}分"
+        remain_s = font_small.render(f"残り {km_str}  約{min_str}", True, (160, 220, 160))
+        screen.blit(remain_s, (panel_x + 8, y_cur))
 
 
 def _wrap_text(text: str, font, max_width: int) -> list[str]:
