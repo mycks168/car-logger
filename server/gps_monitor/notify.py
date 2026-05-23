@@ -3,14 +3,28 @@ Slack通知モジュール。最後に検知した地点のGoogleマップリン
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 import httpx
+
+_JST = timezone(timedelta(hours=9))
 
 logger = logging.getLogger(__name__)
 
 
 def _maps_url(lat: float, lon: float) -> str:
     return f"https://www.google.com/maps?q={lat},{lon}"
+
+
+def _to_jst(iso_str: str) -> str:
+    """ISO 8601文字列をJST表示に変換する。"""
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_JST).strftime("%Y-%m-%d %H:%M:%S JST")
+    except Exception:
+        return iso_str
 
 
 def send_alert(
@@ -37,7 +51,7 @@ def send_alert(
         f":warning: *車両アラート* :warning:\n"
         f"*原因*: {reason}\n"
         f"*最終確認位置*: `{lat:.6f}, {lon:.6f}`\n"
-        f"*最終確認時刻*: {last_known_at}\n"
+        f"*最終確認時刻*: {_to_jst(last_known_at)}\n"
         f"*地図*: {maps_url}"
     )
     payload = {"text": text}
