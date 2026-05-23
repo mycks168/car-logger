@@ -23,9 +23,9 @@ car-logger-ai は、車両盗難防止・ドライブ支援を目的としたラ
            ├── STT: OpenAI Whisper API または STT Gateway
            ├── LLM: OpenClaw (Claude 等)
            ├── TTS: VoiceVox または OpenAI TTS
-           ├── 地図表示: OSM タイル + 経路ポリライン + POI
+           ├── 地図表示: OSM タイル + 経路ポリライン + POI（ノースアップ / ヘッディングアップ切替可）
            ├── ナビ: OSRM 経路計算 + ターンバイターン音声案内
-           └── Webhook: POST /navigate, /map/zoom 等で外部から操作
+           └── Webhook: POST /navigate, /map/zoom, /map/orientation 等で外部から操作
      │ iPhone USBテザリング (インターネット)
      │ Tailscale VPN
 [サーバ]
@@ -92,8 +92,8 @@ car-logger-ai/
 │       │   ├── system.py       # バッテリー・WiFi 状態読み取り
 │       │   └── pi3/
 │       │       ├── board.py    # ラズパイ Pi3 ボード初期化
-│       │       ├── display.py  # pygame キャラクター＋テキスト＋ナビパネル表示
-│       │       └── map_tiles.py  # OSM タイル取得・経路ポリライン・POI 描画
+│       │       ├── display.py  # pygame キャラクター＋テキスト＋ナビパネル表示・タップゾーン
+│       │       └── map_tiles.py  # OSM タイル取得・経路ポリライン・POI 描画・ヘッディングアップ回転
 │       └── services/
 │           ├── llm/
 │           │   └── openclaw.py     # OpenClaw ストリーミング応答
@@ -104,7 +104,7 @@ car-logger-ai/
 │           │   ├── voicevox.py     # VoiceVox TTS（非同期キュー再生）
 │           │   ├── openai.py       # OpenAI TTS
 │           │   └── filter.py       # TTS フィルター（コードブロック変換など）
-│           └── webhook.py          # POST /speak /navigate /map/zoom 等 Webhook サーバ
+│           └── webhook.py          # POST /speak /navigate /map/zoom /map/orientation 等 Webhook サーバ
 ├── server/                     # サーバ側
 │   ├── pyproject.toml
 │   ├── sensor_map.json.example  # センサーID⇔場所名マッピングのサンプル
@@ -128,6 +128,13 @@ car-logger-ai/
 │       └── templates/
 │           ├── index.html       # Leaflet.js GPS軌跡UI
 │           └── temperature.html # Chart.js 温度グラフUI
+├── skills/                     # OpenClaw スキル（voice_assistant から呼び出す）
+│   ├── navi/SKILL.md           # カーナビ案内開始（Nominatim + /navigate）
+│   ├── navi-stop/SKILL.md      # カーナビ案内停止
+│   ├── navi-pause/SKILL.md     # カーナビ案内一時停止 / 再開
+│   ├── map-zoom/SKILL.md       # 地図ズームイン / ズームアウト
+│   ├── map-orientation/SKILL.md  # 地図向き切替（ノースアップ / ヘッディングアップ）
+│   └── get-location/SKILL.md   # 現在地取得（逆ジオコーディング）
 ├── .env.example                 # サーバ側・GPS サーバ 環境変数サンプル
 └── README.md
 ```

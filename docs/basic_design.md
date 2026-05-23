@@ -99,21 +99,21 @@ curl http://localhost:8082/location
 
 **リクエスト（JSON）:**
 ```bash
-curl -X POST http://localhost:8080/speak \
+curl -X POST http://localhost:8082/speak \
   -H "Content-Type: application/json" \
   -d '{"text": "目的地に到着しました", "title": "ナビ"}'
 ```
 
 **リクエスト（プレーンテキスト）:**
 ```bash
-curl -X POST http://localhost:8080/speak \
+curl -X POST http://localhost:8082/speak \
   -H "Content-Type: text/plain" \
   -d "速度注意"
 ```
 
 **認証あり（`WEBHOOK_TOKEN` が設定されている場合）:**
 ```bash
-curl -X POST http://localhost:8080/speak \
+curl -X POST http://localhost:8082/speak \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"text": "メッセージ"}'
@@ -133,11 +133,11 @@ curl -X POST http://localhost:8080/speak \
 
 #### `POST /navigate`
 
-目的地の緯度経度を指定して経路案内を開始する。OSRM で経路計算し、地図に経路を表示してターンバイターン音声案内を開始する。
+目的地の緯度経度を指定して経路案内を開始する。OSRM で経路計算し、地図に経路を表示してターンバイターン音声案内を開始する。案内中に再度呼ぶと目的地を上書き変更できる。
 
 **リクエスト（JSON）:**
 ```bash
-curl -X POST http://localhost:8080/navigate \
+curl -X POST http://localhost:8082/navigate \
   -H "Content-Type: application/json" \
   -d '{"lat": 35.658, "lon": 139.701, "name": "渋谷駅"}'
 ```
@@ -158,7 +158,7 @@ curl -X POST http://localhost:8080/navigate \
 案内を停止して経路を消去する。
 
 ```bash
-curl -X POST http://localhost:8080/navigate/stop
+curl -X POST http://localhost:8082/navigate/stop
 ```
 
 #### `POST /navigate/pause`
@@ -166,16 +166,16 @@ curl -X POST http://localhost:8080/navigate/stop
 案内を一時停止 / 再開する（トグル）。一時停止中はナビパネルに「⏸ 案内一時停止中」と表示される。
 
 ```bash
-curl -X POST http://localhost:8080/navigate/pause
+curl -X POST http://localhost:8082/navigate/pause
 ```
 
 #### `POST /map/zoom`
 
-地図のズームレベルを変更する。
+地図のズームレベルを変更する。画面右側の `[+]` `[−]` ボタンでも操作できる。
 
 **相対変更（ズームイン / ズームアウト）:**
 ```bash
-curl -X POST http://localhost:8080/map/zoom \
+curl -X POST http://localhost:8082/map/zoom \
   -H "Content-Type: application/json" \
   -d '{"delta": 1}'    # ズームイン
   # または
@@ -184,7 +184,7 @@ curl -X POST http://localhost:8080/map/zoom \
 
 **絶対値指定:**
 ```bash
-curl -X POST http://localhost:8080/map/zoom \
+curl -X POST http://localhost:8082/map/zoom \
   -H "Content-Type: application/json" \
   -d '{"level": 16}'
 ```
@@ -194,6 +194,21 @@ curl -X POST http://localhost:8080/map/zoom \
 | `delta` | ズームレベルの相対変化量（正でイン、負でアウト） |
 | `level` | ズームレベルの絶対値（10〜19） |
 
+#### `POST /map/orientation`
+
+地図の向きをノースアップ / ヘッディングアップで切り替える（トグル）。画面右側の `[N↑]` / `[H↑]` ボタンでも操作できる。
+
+```bash
+curl -X POST http://localhost:8082/map/orientation
+```
+
+| モード | 説明 |
+|---|---|
+| ノースアップ（N↑） | 北が常に上（デフォルト） |
+| ヘッディングアップ（H↑） | 車の進行方向が常に上になるよう地図を回転。速度 5 km/h 未満の停車中は最後の方位を維持 |
+
+レスポンス: `{"status": "ok"}`
+
 ---
 
 ## 設定一覧
@@ -202,8 +217,19 @@ curl -X POST http://localhost:8080/map/zoom \
 
 | 変数名 | 説明 |
 |---|---|
-| `RASPI_WEBHOOK_URL` | ラズパイ Webhook の完全ベースURL（例: `http://100.x.x.x:8080`）。スキルから `/navigate` 等を呼ぶ際に使用 |
+| `RASPI_WEBHOOK_URL` | ラズパイ Webhook の完全ベースURL（例: `http://100.x.x.x:8082`）。スキルから `/navigate` 等を呼ぶ際に使用 |
 | `WEBHOOK_TOKEN` | Webhook Bearer トークン（`WEBHOOK_TOKEN` を設定している場合のみ） |
+
+利用可能なスキル:
+
+| スキル名 | 説明 |
+|---|---|
+| `navi` | 目的地を指定してカーナビ案内を開始する |
+| `navi-stop` | カーナビ案内を停止する |
+| `navi-pause` | カーナビ案内を一時停止 / 再開する |
+| `map-zoom` | 地図をズームイン / ズームアウトする |
+| `map-orientation` | 地図の向きをノースアップ / ヘッディングアップで切り替える |
+| `get-location` | 現在の GPS 位置情報を取得して住所に変換する |
 
 ### サーバ側（`server/.env`）
 

@@ -21,6 +21,9 @@
         {"delta": 1}  または  {"level": 16}
         → ズームイン / ズームアウト / 絶対値指定
 
+    POST /map/orientation
+        → ノースアップ / ヘッディングアップを切り替える（トグル）
+
 認証 (WEBHOOK_TOKEN が設定されている場合):
     Authorization: Bearer <token>
 """
@@ -44,6 +47,7 @@ class WebhookServer:
         on_navigate_pause: Callable[[], None] | None = None,
         on_map_zoom: Callable[[int | None, int | None], None] | None = None,
         on_get_location: Callable[[], dict] | None = None,
+        on_map_orientation: Callable[[], None] | None = None,
     ):
         """
         on_message(text, title)    : /speak — TTS キューに積む
@@ -52,6 +56,7 @@ class WebhookServer:
         on_navigate_pause()        : /navigate/pause — 一時停止/再開
         on_map_zoom(delta, level)  : /map/zoom — ズーム変更（delta か level どちらか non-None）
         on_get_location()          : /location — 現在の GPS 情報を dict で返す
+        on_map_orientation()       : /map/orientation — ノースアップ/ヘッディングアップ切替
         """
         self._on_message = on_message
         self._on_navigate = on_navigate or (lambda lat, lon, name: None)
@@ -59,6 +64,7 @@ class WebhookServer:
         self._on_navigate_pause = on_navigate_pause or (lambda: None)
         self._on_map_zoom = on_map_zoom or (lambda delta, level: None)
         self._on_get_location = on_get_location or (lambda: {})
+        self._on_map_orientation = on_map_orientation or (lambda: None)
 
         self._server = HTTPServer(("", config.WEBHOOK_PORT), self._make_handler())
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
@@ -77,6 +83,7 @@ class WebhookServer:
         on_navigate_pause = self._on_navigate_pause
         on_map_zoom = self._on_map_zoom
         on_get_location = self._on_get_location
+        on_map_orientation = self._on_map_orientation
 
         class _Handler(BaseHTTPRequestHandler):
             def log_message(self, fmt, *args):
@@ -206,6 +213,13 @@ class WebhookServer:
                     threading.Thread(
                         target=on_map_zoom, args=(delta, level), daemon=True
                     ).start()
+                    self._respond_json(200, {"status": "ok"})
+
+                # ── POST /map/orientation ────────────────────────────────────
+                elif path == "/map/orientation":
+                    self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                    log.info("webhook /map/orientation")
+                    threading.Thread(target=on_map_orientation, daemon=True).start()
                     self._respond_json(200, {"status": "ok"})
 
                 else:

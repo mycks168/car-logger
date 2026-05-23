@@ -289,6 +289,8 @@ class Display:
                     self._stop_event.set()
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     self._stop_event.set()
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    _handle_map_tap(event.pos[0], event.pos[1], self._map, w, h)
 
             screen.fill(_BG_COLOR)
 
@@ -479,6 +481,10 @@ class Display:
                     nav_dest, nav_total_dist, nav_total_dur,
                     nav_paused,
                 )
+
+            # ── 5b. 地図操作ボタン（右側、常時） ────────────────────────────────
+            if map_surf and not sleeping:
+                _draw_map_buttons(screen, self._map, w, h, pygame, font_medium)
 
             # ── 6. テキストオーバーレイ（スリープ時は非表示） ────────────────
             if not sleeping:
@@ -677,6 +683,51 @@ def _draw_nav_panel(
         min_str = f"{int(total_dur_s / 60)}分"
         remain_s = font_small.render(f"残り {km_str}  約{min_str}", True, (160, 220, 160))
         screen.blit(remain_s, (panel_x + 8, y_cur))
+
+
+# ── 地図操作タップゾーン ─────────────────────────────────────────────────────
+_BTN_SIZE = 64
+_BTN_PAD = 8
+_BTN_BAR_H = 54
+
+
+def _map_button_rects(w: int, h: int) -> list[tuple[int, int, int, int]]:
+    """[ズームイン, ズームアウト, 向き切替] の (x, y, w, h) を返す。"""
+    bx = w - _BTN_SIZE - _BTN_PAD
+    by0 = _BTN_BAR_H + _BTN_PAD
+    step = _BTN_SIZE + _BTN_PAD
+    return [
+        (bx, by0, _BTN_SIZE, _BTN_SIZE),
+        (bx, by0 + step, _BTN_SIZE, _BTN_SIZE),
+        (bx, by0 + step * 2, _BTN_SIZE, _BTN_SIZE),
+    ]
+
+
+def _handle_map_tap(x: int, y: int, map_mgr, w: int, h: int):
+    """タップ座標に応じてズーム変更または向き切り替えを行う。"""
+    rects = _map_button_rects(w, h)
+    for i, (rx, ry, rw, rh) in enumerate(rects):
+        if rx <= x <= rx + rw and ry <= y <= ry + rh:
+            if i == 0:
+                map_mgr.change_zoom(1)
+            elif i == 1:
+                map_mgr.change_zoom(-1)
+            else:
+                map_mgr.toggle_heading_up()
+            break
+
+
+def _draw_map_buttons(screen, map_mgr, w: int, h: int, pygame, font):
+    """ズームイン / ズームアウト / 向き切替ボタンを右側に描画する。"""
+    labels = ["+", "−", "H↑" if map_mgr.heading_up else "N↑"]
+    for (rx, ry, rw, rh), label in zip(_map_button_rects(w, h), labels):
+        bg = pygame.Surface((rw, rh), pygame.SRCALPHA)
+        bg.fill((0, 0, 0, 170))
+        screen.blit(bg, (rx, ry))
+        pygame.draw.rect(screen, (100, 100, 100), (rx, ry, rw, rh), 1)
+        txt = font.render(label, True, (240, 240, 240))
+        screen.blit(txt, (rx + (rw - txt.get_width()) // 2,
+                          ry + (rh - txt.get_height()) // 2))
 
 
 def _wrap_text(text: str, font, max_width: int) -> list[str]:

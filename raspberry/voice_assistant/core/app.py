@@ -88,6 +88,7 @@ class Assistant:
                 on_navigate_pause=self._on_webhook_navigate_pause,
                 on_map_zoom=self._on_webhook_map_zoom,
                 on_get_location=self._on_webhook_get_location,
+                on_map_orientation=self._on_webhook_map_orientation,
             )
             self._webhook.start()
 
@@ -518,6 +519,12 @@ class Assistant:
             direction = "ズームイン" if delta > 0 else "ズームアウト"
             if self._tts:
                 self._tts.submit(f"{direction}しました。")
+
+    def _on_webhook_map_orientation(self):
+        heading_up = self.display.map_manager.toggle_heading_up()
+        msg = "ヘッディングアップに切り替えました。" if heading_up else "ノースアップに切り替えました。"
+        if self._tts:
+            self._tts.submit(msg)
 
     def _on_monitor_event(self, event: MonitorEvent):
         if event.kind == "wifi_off":
