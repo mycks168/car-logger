@@ -273,43 +273,47 @@ class NavigationEngine:
             next_step = steps[idx]
             dist_m = _haversine_m(lat, lon, next_step.lat, next_step.lon)
 
+            speak_text: str | None = None
+            should_notify = False
             with self._lock:
                 if not self._state.active or self._state.step_index != idx:
-                    continue
+                    pass  # 状態が変わった場合はスキップ
 
                 # 目的地到着判定
-                if next_step.is_arrive:
+                elif next_step.is_arrive:
                     if dist_m <= config.NAV_ARRIVE_DISTANCE_M:
-                        self._state.active = False
-                        self._on_speak(f"{self._state.dest_name}に到着しました。案内を終了します。")
+                        speak_text = f"{self._state.dest_name}に到着しました。案内を終了します。"
                         self._state = NavState()
-                        self._on_state_change()
+                        should_notify = True
                         log.info("目的地到着")
-                    continue
 
-                # ステップ通過判定（50m 以内に近づいたら次へ）
-                if dist_m <= 30:
+                # ステップ通過判定（30m 以内に近づいたら次へ）
+                elif dist_m <= 30:
                     self._state.step_index += 1
                     self._state.announced_far = False
                     self._state.announced_near = False
-                    self._on_state_change()
+                    should_notify = True
                     log.debug("ステップ %d 通過", idx)
-                    continue
 
                 # 300m 前案内
-                far_thresh = config.NAV_ANNOUNCE_DISTANCE_M
-                near_thresh = 50
-                if dist_m <= far_thresh and not self._state.announced_far:
+                elif dist_m <= config.NAV_ANNOUNCE_DISTANCE_M and not self._state.announced_far:
                     self._state.announced_far = True
                     road = f"「{next_step.name}」を" if next_step.name else ""
-                    self._on_speak(
+                    speak_text = (
                         f"約{int(dist_m)}メートル先、"
                         f"{road}{next_step.instruction}してください"
                     )
                     log.info("300m 案内: %s", next_step.instruction)
 
                 # 50m 前案内
-                elif dist_m <= near_thresh and not self._state.announced_near:
+                elif dist_m <= 50 and not self._state.announced_near:
                     self._state.announced_near = True
-                    self._on_speak(f"{next_step.instruction}してください")
+                    speak_text = f"{next_step.instruction}してください"
                     log.info("50m 案内: %s", next_step.instruction)
+
+            # _on_speak と _on_state_change はロック外で呼ぶ
+            # （_on_speak は TTS HTTP リクエストで数秒ブロックすることがある）
+            if speak_text:
+                self._on_speak(speak_text)
+            if should_notify:
+                self._on_state_change()
