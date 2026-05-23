@@ -76,9 +76,10 @@ def _load_sessions() -> list[dict]:
 
 OPENCLAW_SESSIONS: list[dict] = _load_sessions()
 
-AUDIO_DEVICE = os.environ.get("AUDIO_DEVICE", "plughw:1,0")
-AUDIO_OUTPUT_DEVICE = os.environ.get("AUDIO_OUTPUT_DEVICE", "default")
-AUDIO_OUTPUT_CARD = int(os.environ.get("AUDIO_OUTPUT_CARD", "0"))
+AUDIO_DEVICE = os.environ.get("AUDIO_DEVICE", "plughw:CARD=Microphone,DEV=0")
+AUDIO_OUTPUT_DEVICE = os.environ.get("AUDIO_OUTPUT_DEVICE", "plughw:CARD=vc4hdmi,DEV=0")
+# amixer 用カード名（aplay -l の card N: <name> の短縮名）
+AUDIO_OUTPUT_CARD = os.environ.get("AUDIO_OUTPUT_CARD", "vc4hdmi")
 AUDIO_OUTPUT_VOLUME = int(os.environ.get("AUDIO_OUTPUT_VOLUME", "90"))
 AUDIO_SAMPLE_RATE = int(os.environ.get("AUDIO_SAMPLE_RATE", "16000"))
 

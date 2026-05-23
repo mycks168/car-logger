@@ -212,9 +212,9 @@ curl -X POST http://localhost:8080/speak \
 | 変数名 | デフォルト | 説明 |
 |---|---|---|
 | `PI3_PTT_GPIO` | `17` | PTT スイッチの GPIO ピン番号（BCM） |
-| `AUDIO_DEVICE` | `plughw:1,0` | マイク入力デバイス（`arecord -l` で確認） |
-| `AUDIO_OUTPUT_DEVICE` | `default` | 音声出力デバイス（`aplay -l` で確認） |
-| `AUDIO_OUTPUT_CARD` | `0` | 音声出力カード番号 |
+| `AUDIO_DEVICE` | `plughw:CARD=Microphone,DEV=0` | マイク入力デバイス（`arecord -l` の短縮名で指定） |
+| `AUDIO_OUTPUT_DEVICE` | `plughw:CARD=vc4hdmi,DEV=0` | 音声出力デバイス（`aplay -l` の短縮名で指定） |
+| `AUDIO_OUTPUT_CARD` | `vc4hdmi` | amixer 用カード名（`AUDIO_OUTPUT_DEVICE` の `CARD=` と同じ値） |
 | `AUDIO_OUTPUT_VOLUME` | `90` | 音量（%） |
 | `AUDIO_SAMPLE_RATE` | `16000` | マイク録音サンプルレート (Hz) |
 
@@ -574,15 +574,17 @@ sudo journalctl -u gps-web -f
 
 ### 音声が録音されない / 無音と判断される
 
-1. `arecord -D <AUDIO_DEVICE> -f S16_LE -r 16000 test.wav` で録音できるか確認する
-2. `SILENCE_RMS_THRESHOLD` を下げる（デフォルト `200`）
-3. `AUDIO_SAMPLE_RATE` がマイクの対応レートと一致しているか確認する
+1. `arecord -l` でカード短縮名を確認し、`AUDIO_DEVICE=plughw:CARD=<短縮名>,DEV=0` と設定する
+2. `arecord -D plughw:CARD=Microphone,DEV=0 -f S16_LE -r 16000 test.wav` で録音できるか確認する
+3. `SILENCE_RMS_THRESHOLD` を下げる（デフォルト `200`）
+4. `AUDIO_SAMPLE_RATE` がマイクの対応レートと一致しているか確認する
 
 ### TTS が再生されない
 
-1. `aplay -l` で出力デバイスを確認し、`AUDIO_OUTPUT_DEVICE` を正しく設定する（例: `hdmi:CARD=vc4hdmi0`）
-2. `AUDIO_OUTPUT_VOLUME` が十分な値か確認する
-3. `TTS_ENGINE=voicevox` の場合、`VOICEVOX_URL` にアクセスできるか確認する
+1. `aplay -l` でカード短縮名を確認し、`AUDIO_OUTPUT_DEVICE=plughw:CARD=<短縮名>,DEV=0`、`AUDIO_OUTPUT_CARD=<短縮名>` を設定する
+2. `aplay -D plughw:CARD=vc4hdmi,DEV=0 /usr/share/sounds/alsa/Front_Left.wav` で再生確認する
+3. `AUDIO_OUTPUT_VOLUME` が十分な値か確認する
+4. `TTS_ENGINE=voicevox` の場合、`VOICEVOX_URL` にアクセスできるか確認する
 
 ### ボタンが反応しない
 

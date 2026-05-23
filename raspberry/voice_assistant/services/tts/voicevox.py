@@ -243,12 +243,11 @@ class TTSPlayer:
     def _play_wav(self, wav_data: bytes) -> None:
         if not self._volume_set:
             vol = f"{config.AUDIO_OUTPUT_VOLUME}%"
-            for card in ("0", "1"):
-                for control in ("Master", "PCM", "Headphone", "Speaker"):
-                    subprocess.run(
-                        ["amixer", "-q", "-c", card, "set", control, vol],
-                        capture_output=True, check=False,
-                    )
+            for control in ("Master", "PCM", "Headphone", "Speaker"):
+                subprocess.run(
+                    ["amixer", "-q", "-D", f"hw:CARD={config.AUDIO_OUTPUT_CARD}", "set", control, vol],
+                    capture_output=True, check=False,
+                )
             self._volume_set = True
 
         self._mouth_timeline = _analyze_mouth(wav_data)
