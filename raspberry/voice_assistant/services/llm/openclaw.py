@@ -1,10 +1,14 @@
 import json
+import logging
+import time
 from typing import Generator
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 import config
+
+log = logging.getLogger("voice-assistant")
 
 _http_session: requests.Session | None = None
 
@@ -70,12 +74,13 @@ def stream_response(
         "input": input_val,
     }
 
-    print(f"[openclaw] POST {url} (stream=true)")
-
+    log.info("[openclaw] POST %s (stream=true)", url)
+    t0 = time.monotonic()
     try:
         resp = _get_session().post(url, json=body, headers=headers, stream=True, timeout=(30, 120))
     except (requests.ConnectionError, requests.Timeout) as e:
         raise RuntimeError(f"Cannot reach OpenClaw at {effective_base_url}: {e}") from e
+    log.info("[openclaw] response received in %.1fs, status=%d", time.monotonic() - t0, resp.status_code)
 
     if resp.status_code != 200:
         raise RuntimeError(

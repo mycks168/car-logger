@@ -1,5 +1,6 @@
 """VOICEVOX TTS playback with pre-fetching for gapless sentence transitions."""
 
+import logging
 import math
 import queue
 import struct
@@ -12,6 +13,8 @@ import requests
 
 import config
 from services.tts.filter import apply_tts_filter
+
+log = logging.getLogger("voice-assistant")
 
 try:
     import numpy as np
@@ -158,18 +161,23 @@ class TTSPlayer:
             base_url = base_url[:-1]
         speaker = config.VOICEVOX_SPEAKER
 
+        log.info("[voicevox] fetch start: %r", text[:40])
+        t_start = time.monotonic()
+
         # 1. Start audio_query
         query_url = f"{base_url}/audio_query"
+        t0 = time.monotonic()
         try:
             resp1 = requests.post(query_url, params={"text": text, "speaker": speaker}, timeout=10)
         except Exception as e:
-            print(f"[tts_voicevox] audio_query request failed: {e}")
+            log.error("[voicevox] audio_query request failed: %s", e)
             return None
-            
+        log.info("[voicevox] audio_query took %.1fs, status=%d", time.monotonic() - t0, resp1.status_code)
+
         if resp1.status_code != 200:
-            print(f"[tts_voicevox] audio_query error {resp1.status_code}: {resp1.text[:200]}")
+            log.error("[voicevox] audio_query error %d: %s", resp1.status_code, resp1.text[:200])
             return None
-        
+
         query_data = resp1.json()
 
         # Voicevox specific settings: speedScale config map
@@ -180,24 +188,27 @@ class TTSPlayer:
 
         # 2. Synthesis
         synth_url = f"{base_url}/synthesis"
+        t0 = time.monotonic()
         try:
             resp2 = requests.post(
-                synth_url, 
-                params={"speaker": speaker}, 
-                json=query_data, 
+                synth_url,
+                params={"speaker": speaker},
+                json=query_data,
                 headers={"Content-Type": "application/json"},
-                stream=True, 
+                stream=True,
                 timeout=30
             )
         except Exception as e:
-            print(f"[tts_voicevox] synthesis request failed: {e}")
+            log.error("[voicevox] synthesis request failed: %s", e)
             return None
 
         if resp2.status_code != 200:
-            print(f"[tts_voicevox] synthesis API error {resp2.status_code}: {resp2.text[:200]}")
+            log.error("[voicevox] synthesis API error %d: %s", resp2.status_code, resp2.text[:200])
             return None
 
         wav_data = b"".join(resp2.iter_content(chunk_size=4096))
+        log.info("[voicevox] synthesis took %.1fs, wav=%d bytes", time.monotonic() - t0, len(wav_data))
+        log.info("[voicevox] total fetch %.1fs", time.monotonic() - t_start)
 
         gain_db = config.OPENAI_TTS_GAIN_DB
         if gain_db > 0:

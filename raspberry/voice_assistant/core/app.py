@@ -273,6 +273,7 @@ class Assistant:
                     chunk = tts_buffer[:cut].strip()
                     tts_buffer = tts_buffer[cut:]
                     if chunk:
+                        log.info("[tts] submit chunk at +%.1fs: %r", time.monotonic() - stream_t0, chunk[:40])
                         self._tts.submit(chunk)
 
         if self._is_stale(my_gen):
