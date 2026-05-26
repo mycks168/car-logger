@@ -1,65 +1,90 @@
 """
-GPS履歴をSQLiteに保存・取得するモジュール。
+GPS履歴をPostgreSQLに保存・取得するモジュール。
+
+接続先は環境変数 DATABASE_URL で指定する。
+例: postgresql://user:pass@localhost:5432/car_logger
 """
 
-import sqlite3
+import os
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / "data" / "gps_history.db"
+import psycopg2
+import psycopg2.extras
+import psycopg2.pool
 
-_CREATE_TABLE = """
-CREATE TABLE IF NOT EXISTS gps_log (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    recorded_at TEXT NOT NULL,  -- ISO 8601 UTC
-    lat       REAL NOT NULL,
-    lon       REAL NOT NULL,
-    alt       REAL,
-    speed_kmh REAL,
-    has_fix   INTEGER NOT NULL  -- 0=キャッシュ値, 1=リアルタイムfix
-);
-CREATE INDEX IF NOT EXISTS idx_recorded_at ON gps_log (recorded_at);
+_pool: psycopg2.pool.ThreadedConnectionPool | None = None
 
-CREATE TABLE IF NOT EXISTS geolocation_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    recorded_at  TEXT NOT NULL,  -- ISO 8601 UTC
-    lat          REAL NOT NULL,
-    lon          REAL NOT NULL,
-    accuracy_m   REAL,           -- Google APIが返す誤差半径（メートル）
-    gps_lat      REAL,           -- 同時刻のGPS座標（比較用・nullの場合はGPS取得不可）
-    gps_lon      REAL,
-    distance_m   REAL            -- GPS座標との距離（メートル）
-);
-CREATE INDEX IF NOT EXISTS idx_geo_recorded_at ON geolocation_log (recorded_at);
 
-CREATE TABLE IF NOT EXISTS camera_photos (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    recorded_at TEXT NOT NULL,  -- ISO 8601 UTC
-    lat         REAL,           -- 撮影時のGPS緯度（取得できない場合はNULL）
-    lon         REAL,
-    alt         REAL,
-    photo_path  TEXT NOT NULL   -- server/data/photos/ 以下の相対パス
-);
-CREATE INDEX IF NOT EXISTS idx_photo_recorded_at ON camera_photos (recorded_at);
-"""
+def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
+    global _pool
+    if _pool is None:
+        url = os.environ["DATABASE_URL"]
+        _pool = psycopg2.pool.ThreadedConnectionPool(1, 10, url)
+    return _pool
 
 
 @contextmanager
 def _conn():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(DB_PATH))
-    con.row_factory = sqlite3.Row
+    pool = _get_pool()
+    con = pool.getconn()
     try:
         yield con
         con.commit()
+    except Exception:
+        con.rollback()
+        raise
     finally:
-        con.close()
+        pool.putconn(con)
 
 
 def init_db() -> None:
     with _conn() as con:
-        con.executescript(_CREATE_TABLE)
+        cur = con.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS gps_log (
+                id          SERIAL PRIMARY KEY,
+                recorded_at TIMESTAMPTZ NOT NULL,
+                lat         DOUBLE PRECISION NOT NULL,
+                lon         DOUBLE PRECISION NOT NULL,
+                alt         DOUBLE PRECISION,
+                speed_kmh   DOUBLE PRECISION,
+                has_fix     BOOLEAN NOT NULL,
+                UNIQUE (recorded_at, lat, lon)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_gps_recorded_at ON gps_log (recorded_at)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS geolocation_log (
+                id          SERIAL PRIMARY KEY,
+                recorded_at TIMESTAMPTZ NOT NULL UNIQUE,
+                lat         DOUBLE PRECISION NOT NULL,
+                lon         DOUBLE PRECISION NOT NULL,
+                accuracy_m  DOUBLE PRECISION,
+                gps_lat     DOUBLE PRECISION,
+                gps_lon     DOUBLE PRECISION,
+                distance_m  DOUBLE PRECISION
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_geo_recorded_at ON geolocation_log (recorded_at)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS camera_photos (
+                id          SERIAL PRIMARY KEY,
+                recorded_at TIMESTAMPTZ NOT NULL,
+                lat         DOUBLE PRECISION,
+                lon         DOUBLE PRECISION,
+                alt         DOUBLE PRECISION,
+                photo_path  TEXT NOT NULL UNIQUE
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_photo_recorded_at ON camera_photos (recorded_at)")
+
+
+def _to_iso(dt: datetime | None) -> str | None:
+    """datetimeをISO 8601文字列に変換する。"""
+    if dt is None:
+        return None
+    return dt.isoformat()
 
 
 def insert(
@@ -71,35 +96,50 @@ def insert(
     has_fix: bool,
 ) -> None:
     with _conn() as con:
-        con.execute(
-            "INSERT INTO gps_log (recorded_at, lat, lon, alt, speed_kmh, has_fix) VALUES (?,?,?,?,?,?)",
-            (recorded_at, lat, lon, alt, speed_kmh, 1 if has_fix else 0),
+        cur = con.cursor()
+        cur.execute(
+            """
+            INSERT INTO gps_log (recorded_at, lat, lon, alt, speed_kmh, has_fix)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (recorded_at, lat, lon) DO NOTHING
+            """,
+            (recorded_at, lat, lon, alt, speed_kmh, has_fix),
         )
 
 
 def query(start: datetime, end: datetime) -> list[dict]:
     """指定した日時範囲のGPS履歴を時刻昇順で返す。"""
     with _conn() as con:
-        rows = con.execute(
+        cur = con.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
             """
             SELECT recorded_at, lat, lon, alt, speed_kmh, has_fix
             FROM gps_log
-            WHERE recorded_at >= ? AND recorded_at <= ?
+            WHERE recorded_at >= %s AND recorded_at <= %s
             ORDER BY recorded_at ASC
             """,
             (start.isoformat(), end.isoformat()),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        )
+        rows = cur.fetchall()
+    return [
+        {**dict(r), "recorded_at": _to_iso(r["recorded_at"])}
+        for r in rows
+    ]
 
 
 def latest(n: int = 1) -> list[dict]:
     """最新n件を返す。"""
     with _conn() as con:
-        rows = con.execute(
-            "SELECT recorded_at, lat, lon, alt, speed_kmh, has_fix FROM gps_log ORDER BY recorded_at DESC LIMIT ?",
+        cur = con.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT recorded_at, lat, lon, alt, speed_kmh, has_fix FROM gps_log ORDER BY recorded_at DESC LIMIT %s",
             (n,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        )
+        rows = cur.fetchall()
+    return [
+        {**dict(r), "recorded_at": _to_iso(r["recorded_at"])}
+        for r in rows
+    ]
 
 
 def insert_geolocation(
@@ -112,10 +152,14 @@ def insert_geolocation(
     distance_m: float | None,
 ) -> None:
     with _conn() as con:
-        con.execute(
-            """INSERT INTO geolocation_log
-               (recorded_at, lat, lon, accuracy_m, gps_lat, gps_lon, distance_m)
-               VALUES (?,?,?,?,?,?,?)""",
+        cur = con.cursor()
+        cur.execute(
+            """
+            INSERT INTO geolocation_log
+                (recorded_at, lat, lon, accuracy_m, gps_lat, gps_lon, distance_m)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (recorded_at) DO NOTHING
+            """,
             (recorded_at, lat, lon, accuracy_m, gps_lat, gps_lon, distance_m),
         )
 
@@ -123,14 +167,21 @@ def insert_geolocation(
 def query_geolocation(start: datetime, end: datetime) -> list[dict]:
     """指定した日時範囲のGeolocation履歴を時刻昇順で返す。"""
     with _conn() as con:
-        rows = con.execute(
-            """SELECT recorded_at, lat, lon, accuracy_m, gps_lat, gps_lon, distance_m
-               FROM geolocation_log
-               WHERE recorded_at >= ? AND recorded_at <= ?
-               ORDER BY recorded_at ASC""",
+        cur = con.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """
+            SELECT recorded_at, lat, lon, accuracy_m, gps_lat, gps_lon, distance_m
+            FROM geolocation_log
+            WHERE recorded_at >= %s AND recorded_at <= %s
+            ORDER BY recorded_at ASC
+            """,
             (start.isoformat(), end.isoformat()),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        )
+        rows = cur.fetchall()
+    return [
+        {**dict(r), "recorded_at": _to_iso(r["recorded_at"])}
+        for r in rows
+    ]
 
 
 def insert_photo(
@@ -142,31 +193,48 @@ def insert_photo(
 ) -> int:
     """カメラ写真を記録しIDを返す。"""
     with _conn() as con:
-        cur = con.execute(
-            "INSERT INTO camera_photos (recorded_at, lat, lon, alt, photo_path) VALUES (?,?,?,?,?)",
+        cur = con.cursor()
+        cur.execute(
+            """
+            INSERT INTO camera_photos (recorded_at, lat, lon, alt, photo_path)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (photo_path) DO NOTHING
+            RETURNING id
+            """,
             (recorded_at, lat, lon, alt, photo_path),
         )
-        return cur.lastrowid
+        row = cur.fetchone()
+        if row:
+            return row[0]
+        # 既に存在する場合はIDを取得して返す
+        cur.execute("SELECT id FROM camera_photos WHERE photo_path = %s", (photo_path,))
+        return cur.fetchone()[0]
 
 
 def query_photos(start: datetime, end: datetime) -> list[dict]:
     """指定した日時範囲のカメラ写真一覧を時刻昇順で返す。"""
     with _conn() as con:
-        rows = con.execute(
-            """SELECT id, recorded_at, lat, lon, alt
-               FROM camera_photos
-               WHERE recorded_at >= ? AND recorded_at <= ?
-               ORDER BY recorded_at ASC""",
+        cur = con.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """
+            SELECT id, recorded_at, lat, lon, alt
+            FROM camera_photos
+            WHERE recorded_at >= %s AND recorded_at <= %s
+            ORDER BY recorded_at ASC
+            """,
             (start.isoformat(), end.isoformat()),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        )
+        rows = cur.fetchall()
+    return [
+        {**dict(r), "recorded_at": _to_iso(r["recorded_at"])}
+        for r in rows
+    ]
 
 
 def get_photo_path(photo_id: int) -> str | None:
     """IDに対応するphoto_pathを返す。存在しない場合はNone。"""
     with _conn() as con:
-        row = con.execute(
-            "SELECT photo_path FROM camera_photos WHERE id = ?",
-            (photo_id,),
-        ).fetchone()
-    return row["photo_path"] if row else None
+        cur = con.cursor()
+        cur.execute("SELECT photo_path FROM camera_photos WHERE id = %s", (photo_id,))
+        row = cur.fetchone()
+    return row[0] if row else None
