@@ -90,15 +90,20 @@ int wifiCredentialIndex = 0;
 bool wifiConnectInProgress = false;
 unsigned long wifiConnectAttemptMillis = 0;
 
-// 優先順位リストの現在位置の候補へ接続を開始する（非ブロッキング。WiFi.begin自体は即座に返る）
+bool wifiWasConnected = false;
+
+// 優先順位リストの現在位置の候補へ接続を開始する（WiFi.begin自体は即座に返る）
 void startWifiCandidate() {
   const WifiCredential& cred = wifiCredentials[wifiCredentialIndex];
   Serial.printf(
       "Wi-Fi接続試行 (優先順位 %d/%d): %s\n",
       wifiCredentialIndex + 1, wifiCredentialCount, cred.ssid);
   // 前の接続試行が内部的に進行中のままだと WiFi.begin() の設定変更が
-  // "sta is connecting, cannot set config" で拒否され続けるため、先に切断しておく
+  // "sta is connecting, cannot set config" で拒否され続けるため、先に切断する。
+  // 切断処理が完了する前に次のbegin()を呼ぶと同じエラーが再発しうるため、
+  // 圏外のAP（切断判定に時間がかかる）が混在していても安全なよう短い待機を挟む。
   WiFi.disconnect(true);
+  delay(100);
   WiFi.begin(cred.ssid, cred.password);
   wifiConnectAttemptMillis = millis();
   wifiConnectInProgress = true;
@@ -109,10 +114,18 @@ void startWifiCandidate() {
 void ensureWifiConnected() {
   if (WiFi.status() == WL_CONNECTED) {
     wifiConnectInProgress = false;
+    wifiWasConnected = true;
     return;
   }
 
   if (!wifiConnectInProgress) {
+    // 直前まで接続できていた（＝今まさに切断された）場合は、優先順位トップから
+    // 試し直す。車載APの電源断（エンジンOFF等）で切れた際に、帰宅後は自宅Wi-Fiを
+    // 最優先で再試行してほしいため、切断前の候補から続きを試すのではなく毎回先頭に戻す。
+    if (wifiWasConnected) {
+      wifiCredentialIndex = 0;
+      wifiWasConnected = false;
+    }
     startWifiCandidate();
     return;
   }
