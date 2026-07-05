@@ -36,6 +36,18 @@ struct WifiCredential {
 
 const int wifiCredentialCount = sizeof(wifiCredentials) / sizeof(wifiCredentials[0]);
 
+// XIAO ESP32C6のオンボードLED(GPIO15, 単色)は実機確認によりactive-HIGH（HIGHで点灯）
+#define LED_ON HIGH
+#define LED_OFF LOW
+
+// LEDで表示する状態の種類。単色LEDのため色ではなく点滅パターン（間隔・回数）で区別する。
+enum LedSignal {
+  LED_SIGNAL_NORMAL,          // 正常: WiFi接続 かつ GPSfix取得中（短い点滅 x 接続中AP番号）
+  LED_SIGNAL_WIFI_CONNECTING, // WiFi未接続（接続試行中）（長めの点滅 x 試行中AP番号）
+  LED_SIGNAL_GPS_NO_FIX,      // GPSはNMEA受信できているがfix無し（2回点滅の固定パターン）
+  LED_SIGNAL_ALL_DOWN,        // WiFiもGPSも認識できていない（高速連続点滅）
+};
+
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
 WebServer server(API_PORT);
@@ -84,6 +96,9 @@ void startWifiCandidate() {
   Serial.printf(
       "Wi-Fi接続試行 (優先順位 %d/%d): %s\n",
       wifiCredentialIndex + 1, wifiCredentialCount, cred.ssid);
+  // 前の接続試行が内部的に進行中のままだと WiFi.begin() の設定変更が
+  // "sta is connecting, cannot set config" で拒否され続けるため、先に切断しておく
+  WiFi.disconnect(true);
   WiFi.begin(cred.ssid, cred.password);
   wifiConnectAttemptMillis = millis();
   wifiConnectInProgress = true;
@@ -106,6 +121,88 @@ void ensureWifiConnected() {
   if (millis() - wifiConnectAttemptMillis >= WIFI_CONNECT_TIMEOUT_MS) {
     wifiCredentialIndex = (wifiCredentialIndex + 1) % wifiCredentialCount;
     startWifiCandidate();
+  }
+}
+
+// 現在の状態から表示すべきLEDシグナルの一覧を組み立てる。複数該当する場合は順番に巡回表示する。
+//
+// WiFi軸（OK/接続試行中）とGPS軸（fix取得中/NMEA受信中だがfix無し/NMEA未受信=認識不可）は
+// 互いに独立に評価する。以前は「GPS認識不可」を「WiFiも未接続」の場合に限定していたため、
+// 「WiFiは繋がっているがGPSが全く応答しない」状態がどの条件にも該当せずLEDが消灯したままになる
+// 抜け穴があった。GPS未認識はWiFi状態によらず独立して表示する。
+int buildLedSignals(LedSignal* out) {
+  bool wifiOk = (WiFi.status() == WL_CONNECTED);
+  bool gpsSerialOk = gpsState.serialActive;
+  bool gpsFixOk = gpsState.hasFix;
+
+  if (wifiOk && gpsFixOk) {
+    out[0] = LED_SIGNAL_NORMAL;
+    return 1;
+  }
+
+  int count = 0;
+  if (!wifiOk) {
+    out[count++] = LED_SIGNAL_WIFI_CONNECTING;
+  }
+  if (!gpsSerialOk) {
+    out[count++] = LED_SIGNAL_ALL_DOWN;  // GPSがNMEAを一切受信できていない（WiFi状態によらず）
+  } else if (!gpsFixOk) {
+    out[count++] = LED_SIGNAL_GPS_NO_FIX;
+  }
+  return count;
+}
+
+// オンボードLED(単色)を非ブロッキングで点滅させ、現在の状態を表現する。
+// 表示すべきシグナルが複数ある場合は、1つずつ表示してから次のシグナルへ順番に切り替える。
+void updateStatusLed() {
+  LedSignal signals[3];
+  int signalCount = buildLedSignals(signals);
+
+  static int activeIndex = 0;
+  static unsigned long patternStartMillis = 0;
+
+  if (signalCount == 0) {
+    digitalWrite(LED_BUILTIN, LED_OFF);
+    return;
+  }
+  if (activeIndex >= signalCount) {
+    activeIndex = 0;
+  }
+
+  int blinkCount;
+  unsigned long onMs, offMs, pauseMs;
+  switch (signals[activeIndex]) {
+    case LED_SIGNAL_NORMAL:
+      blinkCount = wifiCredentialIndex + 1;
+      onMs = 150; offMs = 150; pauseMs = 1500;
+      break;
+    case LED_SIGNAL_WIFI_CONNECTING:
+      blinkCount = wifiCredentialIndex + 1;
+      onMs = 500; offMs = 300; pauseMs = 1500;
+      break;
+    case LED_SIGNAL_GPS_NO_FIX:
+      blinkCount = 2;
+      onMs = 250; offMs = 150; pauseMs = 1000;
+      break;
+    case LED_SIGNAL_ALL_DOWN:
+    default:
+      blinkCount = 10;
+      onMs = 80; offMs = 80; pauseMs = 1000;
+      break;
+  }
+
+  unsigned long cycleLen = onMs + offMs;
+  unsigned long blinkPhaseLen = cycleLen * blinkCount;
+  unsigned long elapsed = millis() - patternStartMillis;
+
+  if (elapsed < blinkPhaseLen) {
+    unsigned long posInCycle = elapsed % cycleLen;
+    digitalWrite(LED_BUILTIN, posInCycle < onMs ? LED_ON : LED_OFF);
+  } else if (elapsed < blinkPhaseLen + pauseMs) {
+    digitalWrite(LED_BUILTIN, LED_OFF);
+  } else {
+    patternStartMillis = millis();
+    activeIndex = (activeIndex + 1) % signalCount;
   }
 }
 
@@ -188,19 +285,23 @@ void updateWifiScan() {
   }
 }
 
-// 現在の位置情報をJSONに組み立て、外部Relayサーバへ1回Pushする
+// 現在の位置情報をJSONに組み立て、外部Relayサーバへ1回Pushする。
+// GPS fixが無い場合も「ESP32・WiFi・Relayへの到達性は生きている」ことを伝えるハートビートとして
+// 必ずPushする（座標欄はnullで送る）。盗難保険用途では「機器自体が生きているか」の判別が重要なため。
 void pushLocationToRelay() {
-  if (isnan(gpsState.lat) || isnan(gpsState.lon)) {
-    return;  // 一度もfixしていない場合はPushする内容がない
-  }
-
   if (RELAY_USE_INSECURE_TLS) {
     relayClient.setInsecure();
   } else {
     relayClient.setCACert(RELAY_ROOT_CA);
   }
 
+  // タイムアウト未設定だとRelayに到達できない場合にloop()が長時間ブロックされ、
+  // LED表示も止まってしまうため、接続・応答とも数秒で打ち切るようにする
+  relayClient.setTimeout(RELAY_PUSH_TIMEOUT_MS / 1000);
+
   HTTPClient https;
+  https.setConnectTimeout(RELAY_PUSH_TIMEOUT_MS);
+  https.setTimeout(RELAY_PUSH_TIMEOUT_MS);
   String url = String("https://") + RELAY_HOST + ":" + String(RELAY_PORT) + RELAY_PUSH_PATH;
   if (!https.begin(relayClient, url)) {
     Serial.println("Relay Push: HTTPS接続の初期化に失敗しました");
@@ -210,8 +311,8 @@ void pushLocationToRelay() {
   https.addHeader("Authorization", String("Bearer ") + RELAY_PUSH_AUTH_TOKEN);
 
   JsonDocument doc;
-  doc["lat"] = gpsState.lat;
-  doc["lon"] = gpsState.lon;
+  if (isnan(gpsState.lat)) doc["lat"] = nullptr; else doc["lat"] = gpsState.lat;
+  if (isnan(gpsState.lon)) doc["lon"] = nullptr; else doc["lon"] = gpsState.lon;
   if (isnan(gpsState.alt)) doc["alt"] = nullptr; else doc["alt"] = gpsState.alt;
   if (isnan(gpsState.speedKmh)) {
     doc["speed_kmh"] = nullptr;
@@ -219,7 +320,10 @@ void pushLocationToRelay() {
     doc["speed_kmh"] = round(gpsState.speedKmh * 10) / 10.0;
   }
   doc["has_fix"] = gpsState.hasFix;
-  doc["recorded_at"] = formatIso8601(gpsState.lastFixAt);
+  // GPSモジュール自体がNMEAを送ってきているか（アンテナ未接続・故障等の切り分け用）
+  doc["gps_serial_active"] = gpsState.serialActive;
+  time_t recordedAtSource = gpsState.lastFixAt != 0 ? gpsState.lastFixAt : time(nullptr);
+  doc["recorded_at"] = formatIso8601(recordedAtSource);
 
   JsonArray aps = doc["wifi_aps"].to<JsonArray>();
   for (int i = 0; i < wifiApCount; i++) {
@@ -333,13 +437,18 @@ void setup() {
   delay(1000);
   Serial.println("=== GPS Server (XIAO ESP32C6) 起動 ===");
 
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LED_OFF);
+
   gpsSerial.begin(GPS_BAUD_RATE, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   Serial.println("GPS UART初期化完了");
 
   WiFi.mode(WIFI_STA);
   while (WiFi.status() != WL_CONNECTED) {
     ensureWifiConnected();
-    delay(100);
+    readGpsSerial();
+    updateStatusLed();
+    delay(10);
   }
   Serial.print("Wi-Fi接続完了: SSID=");
   Serial.print(WiFi.SSID());
@@ -360,5 +469,6 @@ void loop() {
   readGpsSerial();
   updateWifiScan();
   updateRelayPush();
+  updateStatusLed();
   server.handleClient();
 }

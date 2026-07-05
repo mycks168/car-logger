@@ -11,6 +11,10 @@ GET /gps のレスポンスはラズパイ版 gps_server の /gps と互換の�
 gps_monitor 側のポーリング・アラートロジックを変更せずに済むようにしている。
 ただし gpsd_connected は「gpsdへの接続有無」ではなく「直近 PUSH_TIMEOUT_SECONDS 秒以内に
 ESP32からPushを受信できているか」を表す点が異なる。
+
+ESP32はGPS fixが無い間もハートビートとしてPushし続ける（座標欄はnull）。これにより
+「機器がオフライン」「機器は生きているがGPSモジュールが無応答」「GPSはfix待ち」の
+3段階を区別できる（盗難保険用途では、この切り分けが重要なため）。
 """
 
 import os
@@ -51,6 +55,7 @@ class RelayState:
     alt: float | None = None
     speed_kmh: float | None = None
     has_fix: bool = False
+    gps_serial_active: bool = False
     last_fix_at: datetime | None = None
     last_push_at: datetime | None = None
     wifi_aps: list[dict] = field(default_factory=list)
@@ -64,11 +69,15 @@ app = FastAPI(title="GPS Relay")
 
 
 class LocationPush(BaseModel):
-    lat: float
-    lon: float
+    # GPS fixが無い場合もESP32はハートビートとしてPushし続けるため、座標はOptional。
+    # 座標が無いPushを受けても、キャッシュ済みの最終既知座標は上書きしない。
+    lat: float | None = None
+    lon: float | None = None
     alt: float | None = None
     speed_kmh: float | None = None
-    has_fix: bool = True
+    has_fix: bool = False
+    # GPSモジュール自体がNMEAを送ってきているか（アンテナ未接続・故障等の切り分け用）
+    gps_serial_active: bool = False
     recorded_at: str
     wifi_aps: list[dict] = []
     wifi_scanned_at: str | None = None
@@ -102,14 +111,22 @@ def require_pull_auth(
 
 @app.post("/push/location")
 def push_location(body: LocationPush, _: None = Depends(require_push_auth)) -> JSONResponse:
-    """ESP32からの位置情報Pushを受け付け、最新状態を更新する。"""
+    """
+    ESP32からの位置情報Push（またはfix無しのハートビート）を受け付け、最新状態を更新する。
+
+    座標が無いPush（GPS fix無し）でも「ESP32・WiFi・Relayへの到達性は生きている」ことを
+    伝えるために送られてくるため、last_push_at等は常に更新するが、座標欄が無い場合は
+    キャッシュ済みの最終既知座標を上書きしない。
+    """
     now = datetime.now(timezone.utc)
     with _state_lock:
-        _state.lat = body.lat
-        _state.lon = body.lon
-        _state.alt = body.alt
-        _state.speed_kmh = body.speed_kmh
+        if body.lat is not None and body.lon is not None:
+            _state.lat = body.lat
+            _state.lon = body.lon
+            _state.alt = body.alt
+            _state.speed_kmh = body.speed_kmh
         _state.has_fix = body.has_fix
+        _state.gps_serial_active = body.gps_serial_active
         _state.last_push_at = now
         if body.has_fix:
             _state.last_fix_at = _parse_iso(body.recorded_at) if body.recorded_at else now
@@ -125,7 +142,12 @@ def get_gps(_: None = Depends(require_pull_auth)) -> JSONResponse:
     現在のキャッシュ状態をラズパイ版 /gps 互換のJSONで返す。
 
     - gpsd_connected: 直近 PUSH_TIMEOUT_SECONDS 秒以内にESP32からPushを受信できているか
+      （ESP32・WiFi・Relayへの到達性を表す。GPSモジュール自体の状態ではない）
+    - gps_serial_active: ESP32のGPSモジュールがNMEAを送ってきているか（Push自体が古い場合はfalse）
     - has_fix: 直近のPush内容がfix有りだった、かつPush自体が新しい場合のみtrue
+
+    この3段階により「機器がオフライン」「機器は生きているがGPSモジュールが無応答」
+    「GPSモジュールは動いているがfix待ち」を区別できる。
     """
     now = datetime.now(timezone.utc)
     with _state_lock:
@@ -134,6 +156,7 @@ def get_gps(_: None = Depends(require_pull_auth)) -> JSONResponse:
         alt = _state.alt
         speed_kmh = _state.speed_kmh
         has_fix = _state.has_fix
+        gps_serial_active = _state.gps_serial_active
         last_fix_at = _state.last_fix_at
         last_push_at = _state.last_push_at
         wifi_aps = list(_state.wifi_aps)
@@ -152,6 +175,7 @@ def get_gps(_: None = Depends(require_pull_auth)) -> JSONResponse:
     return JSONResponse({
         "has_fix": has_fix and gpsd_connected,
         "gpsd_connected": gpsd_connected,
+        "gps_serial_active": gps_serial_active and gpsd_connected,
         "lat": lat,
         "lon": lon,
         "alt": alt,

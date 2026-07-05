@@ -43,7 +43,7 @@ WifiCredential wifiCredentials[] = {
 
 // mDNSホスト名。同一LAN内から http://<この名前>.local:8080/gps でアクセスできるようにする
 // （車載ラズパイ等、IPが変動する同一ネットワーク機器からのアクセス用）
-#define MDNS_HOSTNAME "sage"
+#define MDNS_HOSTNAME "car-logger"
 
 // 外部Relayサーバ（relay/）への位置情報Push設定。
 // XIAO ESP32C6はTailscaleに参加できず、車のWi-Fi環境も変わるため、
@@ -54,6 +54,10 @@ WifiCredential wifiCredentials[] = {
 #define RELAY_PUSH_PATH "/push/location"
 #define RELAY_PUSH_AUTH_TOKEN "your-push-auth-token"   // relay/.env の PUSH_AUTH_TOKEN と一致させる
 #define RELAY_PUSH_INTERVAL_SECONDS 30
+
+// Relayへの接続・応答待ちを打ち切るまでの時間（ミリ秒）。
+// 未設定だとRelayに到達できない時にloop()全体が長時間ブロックされ、LED表示等も止まってしまう
+#define RELAY_PUSH_TIMEOUT_MS 5000
 
 // true: Relay証明書の検証をスキップする（動作確認用）。
 // Bearerトークンにより書き込み内容の認可自体は保護されるが、通信相手のなりすまし(MITM)は

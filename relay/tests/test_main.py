@@ -19,6 +19,7 @@ def reset_state():
     relay_main._state.alt = None
     relay_main._state.speed_kmh = None
     relay_main._state.has_fix = False
+    relay_main._state.gps_serial_active = False
     relay_main._state.last_fix_at = None
     relay_main._state.last_push_at = None
     relay_main._state.wifi_aps = []
@@ -33,6 +34,7 @@ def _push_payload(**overrides):
         "alt": 12.3,
         "speed_kmh": 4.5,
         "has_fix": True,
+        "gps_serial_active": True,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "wifi_aps": [{"macAddress": "AA:BB:CC:DD:EE:FF", "signalStrength": -55}],
         "wifi_scanned_at": datetime.now(timezone.utc).isoformat(),
@@ -115,6 +117,54 @@ def test_stale_push_marks_gpsd_disconnected():
     body = resp.json()
     assert body["gpsd_connected"] is False
     assert body["has_fix"] is False
+
+
+def test_heartbeat_push_without_coordinates_keeps_last_known_position():
+    """GPS fix無しでもESP32はハートビートとしてPushし続ける（座標欄はnull）。
+    座標を含まないPushで、キャッシュ済みの最終既知座標が消えないことを確認する。"""
+    client.post("/push/location", json=_push_payload(), headers=PUSH_HEADERS)
+    heartbeat = _push_payload(
+        lat=None, lon=None, alt=None, speed_kmh=None,
+        has_fix=False, gps_serial_active=False,
+    )
+    resp = client.post("/push/location", json=heartbeat, headers=PUSH_HEADERS)
+    assert resp.status_code == 200
+
+    body = client.get("/gps", headers=PULL_HEADERS).json()
+    assert body["gpsd_connected"] is True  # ハートビート自体は届いている
+    assert body["gps_serial_active"] is False  # GPSモジュールは無応答
+    assert body["has_fix"] is False
+    assert body["lat"] == 35.681236  # 最終既知座標はキャッシュされたまま
+    assert body["lon"] == 139.767125
+
+
+def test_gps_serial_active_reflects_latest_push():
+    client.post(
+        "/push/location",
+        json=_push_payload(has_fix=False, gps_serial_active=True),
+        headers=PUSH_HEADERS,
+    )
+    body = client.get("/gps", headers=PULL_HEADERS).json()
+    assert body["gps_serial_active"] is True
+    assert body["has_fix"] is False
+
+
+def test_gps_serial_active_is_false_when_push_stale():
+    """Push自体が古い（機器がオフラインかもしれない）場合は、キャッシュされた
+    gps_serial_activeの値をそのまま信用せず、falseとして返す。"""
+    client.post(
+        "/push/location",
+        json=_push_payload(gps_serial_active=True),
+        headers=PUSH_HEADERS,
+    )
+    with relay_main._state_lock:
+        relay_main._state.last_push_at = datetime.now(timezone.utc) - timedelta(
+            seconds=relay_main.PUSH_TIMEOUT_SECONDS + 1
+        )
+
+    body = client.get("/gps", headers=PULL_HEADERS).json()
+    assert body["gpsd_connected"] is False
+    assert body["gps_serial_active"] is False
 
 
 def test_expired_cache_invalidates_coordinates():
