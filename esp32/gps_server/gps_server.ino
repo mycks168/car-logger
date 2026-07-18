@@ -35,6 +35,9 @@ struct WifiCredential {
 #include "config.h"  // wifiCredentials[] 等を定義
 
 const int wifiCredentialCount = sizeof(wifiCredentials) / sizeof(wifiCredentials[0]);
+// 直近のスキャンで各候補(config.hのwifiCredentials[]と同じ並び)が検出できたか。
+// 圏外と分かっている候補にまでWIFI_CONNECT_TIMEOUT_MSをフルに使わないための判定に使う
+bool wifiCandidateVisible[sizeof(wifiCredentials) / sizeof(wifiCredentials[0])];
 
 // XIAO ESP32C6のオンボードLED(GPIO15, 単色)は実機確認によりactive-HIGH（HIGHで点灯）
 #define LED_ON HIGH
@@ -77,6 +80,20 @@ time_t wifiScannedAt = 0;
 unsigned long lastWifiScanStartMillis = 0;
 unsigned int lastPassedChecksumCount = 0;
 
+// WiFi.status()の戻り値(wl_status_t)をログ表示用の文字列に変換する
+const char* wifiStatusToString(wl_status_t status) {
+  switch (status) {
+    case WL_IDLE_STATUS:     return "WL_IDLE_STATUS";
+    case WL_NO_SSID_AVAIL:   return "WL_NO_SSID_AVAIL";
+    case WL_SCAN_COMPLETED:  return "WL_SCAN_COMPLETED";
+    case WL_CONNECTED:       return "WL_CONNECTED";
+    case WL_CONNECT_FAILED:  return "WL_CONNECT_FAILED";
+    case WL_CONNECTION_LOST: return "WL_CONNECTION_LOST";
+    case WL_DISCONNECTED:    return "WL_DISCONNECTED";
+    default:                 return "WL_UNKNOWN";
+  }
+}
+
 // time_t(UTC)を "YYYY-MM-DDTHH:MM:SSZ" 形式のISO8601文字列に変換する
 String formatIso8601(time_t t) {
   struct tm tmStruct;
@@ -91,6 +108,11 @@ bool wifiConnectInProgress = false;
 unsigned long wifiConnectAttemptMillis = 0;
 
 bool wifiWasConnected = false;
+unsigned long lastRssiCheckMillis = 0;
+unsigned long wifiRetryCycleStartMillis = 0;
+
+bool wifiPreRetryScanPending = false;
+unsigned long wifiPreRetryScanStartMillis = 0;
 
 // 優先順位リストの現在位置の候補へ接続を開始する（WiFi.begin自体は即座に返る）
 void startWifiCandidate() {
@@ -109,12 +131,80 @@ void startWifiCandidate() {
   wifiConnectInProgress = true;
 }
 
+// 再接続前スキャンの完了を待ち、完了したら各候補の可視性(wifiCandidateVisible)を
+// 更新してから最初の候補への接続を開始する。スキャンが極端に長引く／失敗した場合は
+// 可視性不明のまま（＝全候補フルタイムアウト扱い）で通常どおり進める。
+void processPreRetryScan() {
+  int16_t status = WiFi.scanComplete();
+
+  if (status == WIFI_SCAN_RUNNING) {
+    if (millis() - wifiPreRetryScanStartMillis < (unsigned long)WIFI_PRE_RETRY_SCAN_TIMEOUT_MS) {
+      return;
+    }
+    Serial.println("再接続前スキャンがタイムアウトしたため可視性判定なしで再試行します");
+    for (int c = 0; c < wifiCredentialCount; c++) wifiCandidateVisible[c] = true;
+  } else if (status >= 0) {
+    for (int c = 0; c < wifiCredentialCount; c++) {
+      wifiCandidateVisible[c] = false;
+      for (int i = 0; i < (int)status; i++) {
+        if (WiFi.SSID(i) == wifiCredentials[c].ssid) {
+          wifiCandidateVisible[c] = true;
+          break;
+        }
+      }
+    }
+    WiFi.scanDelete();
+    // 全候補が不可視ならスキャンの誤判定/隠しSSIDの可能性を考慮し、全候補を可視扱いに戻す
+    bool anyVisible = false;
+    for (int c = 0; c < wifiCredentialCount; c++) {
+      if (wifiCandidateVisible[c]) anyVisible = true;
+    }
+    if (!anyVisible) {
+      for (int c = 0; c < wifiCredentialCount; c++) wifiCandidateVisible[c] = true;
+    }
+  } else {
+    // WIFI_SCAN_FAILED等: 可視性不明として全候補フルタイムアウト扱いにする
+    for (int c = 0; c < wifiCredentialCount; c++) wifiCandidateVisible[c] = true;
+  }
+
+  wifiPreRetryScanPending = false;
+  startWifiCandidate();
+}
+
 // Wi-Fi接続状態を監視し、切断中は優先順位順に候補を巡回して再接続を試みる（非ブロッキング）。
 // setup()・loop()の両方から毎回呼び出すことで、初回接続と再接続を同じロジックで扱う。
 void ensureWifiConnected() {
   if (WiFi.status() == WL_CONNECTED) {
+    if (!wifiWasConnected) {
+      // 接続が確立した直後は電波強度チェックを1周期分猶予する
+      // （つながった瞬間に弱いと判定して即切断→再接続を繰り返すのを防ぐ）
+      lastRssiCheckMillis = millis();
+      // デバッグ用: setup()以外での再接続はこれまで完了ログが出ていなかったため出力する
+      Serial.printf("Wi-Fi再接続完了: SSID=%s RSSI=%ddBm IP=%s\n",
+                    WiFi.SSID().c_str(), WiFi.RSSI(), WiFi.localIP().toString().c_str());
+    }
     wifiConnectInProgress = false;
     wifiWasConnected = true;
+
+    // 接続中のAPの電波強度を定期的に確認し、閾値を下回ったら明示的に切断する。
+    // 自宅Wi-Fiの圏外際で弱い電波を掴んだまま居座り続けるのを防ぐのが目的。
+    // 切断すると ensureWifiConnected() は次回呼び出し時に優先順位トップから
+    // 再試行するため、より強く受信できる候補（自宅Wi-Fiや車載ルーター）へ移れる。
+    if (millis() - lastRssiCheckMillis >= (unsigned long)WIFI_RSSI_CHECK_INTERVAL_SECONDS * 1000UL) {
+      lastRssiCheckMillis = millis();
+      int32_t rssi = WiFi.RSSI();
+      if (rssi <= WIFI_RSSI_DISCONNECT_THRESHOLD_DBM) {
+        Serial.printf(
+            "Wi-Fi電波強度が閾値を下回りました (RSSI=%ddBm <= %ddBm) 切断して再試行します\n",
+            rssi, WIFI_RSSI_DISCONNECT_THRESHOLD_DBM);
+        WiFi.disconnect(true);
+      }
+    }
+    return;
+  }
+
+  if (wifiPreRetryScanPending) {
+    processPreRetryScan();
     return;
   }
 
@@ -126,12 +216,45 @@ void ensureWifiConnected() {
       wifiCredentialIndex = 0;
       wifiWasConnected = false;
     }
-    startWifiCandidate();
+    // どの候補にも繋がらない状態がいつから続いているかを記録する
+    // （WiFiドライバ再初期化の要否判定に使う。下記参照）
+    wifiRetryCycleStartMillis = millis();
+    // 候補を試す前に一度スキャンし、実際に電波が届いている候補を把握する。
+    // 圏外と分かっている候補にまでWIFI_CONNECT_TIMEOUT_MS(30秒)をフルに
+    // 使ってしまうのを防ぐ（例: 自宅にいる間はCarapの圏外判定に毎周30秒を浪費していた）。
+    WiFi.scanNetworks(true);
+    wifiPreRetryScanPending = true;
+    wifiPreRetryScanStartMillis = millis();
     return;
   }
 
-  // 接続試行中: タイムアウトしたら次の優先順位の候補へ移る
-  if (millis() - wifiConnectAttemptMillis >= WIFI_CONNECT_TIMEOUT_MS) {
+  // 接続試行中: タイムアウトしたら次の優先順位の候補へ移る。
+  // 直近のスキャンで圏外と分かっている候補は短いタイムアウトで即座に見切る。
+  unsigned long timeoutMs = wifiCandidateVisible[wifiCredentialIndex]
+      ? (unsigned long)WIFI_CONNECT_TIMEOUT_MS
+      : (unsigned long)WIFI_CONNECT_TIMEOUT_INVISIBLE_MS;
+  if (millis() - wifiConnectAttemptMillis >= timeoutMs) {
+    // 接続できなかった原因の切り分け用（例: WL_NO_SSID_AVAILならSSID発見不可、
+    // WL_CONNECT_FAILEDなら認証失敗、WL_IDLE_STATUSのまま進まない場合はモデムスリープ等
+    // begin()自体が実質開始できていない状態を疑う）
+    Serial.printf("  タイムアウト時のWiFi.status()=%s\n", wifiStatusToString(WiFi.status()));
+    // 実機検証で、圏外の候補が混ざった状態でWiFi.disconnect(true)+WiFi.begin()を
+    // 高頻度に繰り返すと、ESP-IDFのWiFiドライバ内部状態が壊れ（シリアルに
+    // "wifi:timeout when WiFi un-init" 等のエラーが出る）、以後は電波が届く候補に
+    // すら二度と接続できなくなる不具合を確認した。長時間どの候補にも繋がらない場合は
+    // ドライバごと作り直すことで、車で電波の悪い区間を走った後に自動復帰できなくなる
+    // 事態を防ぐ。
+    if (millis() - wifiRetryCycleStartMillis >= (unsigned long)WIFI_DRIVER_RESET_AFTER_MS) {
+      Serial.println("Wi-Fi接続不能が続いているためWiFiドライバを再初期化します");
+      WiFi.mode(WIFI_OFF);
+      delay(200);
+      WiFi.mode(WIFI_STA);
+      WiFi.setSleep(false);
+      wifiCredentialIndex = 0;
+      wifiRetryCycleStartMillis = millis();
+      startWifiCandidate();
+      return;
+    }
     wifiCredentialIndex = (wifiCredentialIndex + 1) % wifiCredentialCount;
     startWifiCandidate();
   }
@@ -285,14 +408,34 @@ void updateWifiScan() {
       wifiAps[i].macAddress.toUpperCase();
       wifiAps[i].signalStrength = WiFi.RSSI(i);
     }
+    Serial.printf("WiFiスキャン完了: %d APを検出\n", wifiApCount);
+    // デバッグ用: 現在接続中のSSIDと、登録済み候補(config.h)が実際にどの電波強度で
+    // 見えているかを出力する（scanDelete()の前に、SSID名で突き合わせる）
+    Serial.printf("  接続中: SSID=%s RSSI=%ddBm\n", WiFi.SSID().c_str(), WiFi.RSSI());
+    for (int c = 0; c < wifiCredentialCount; c++) {
+      bool found = false;
+      for (int i = 0; i < (int)status; i++) {
+        if (WiFi.SSID(i) == wifiCredentials[c].ssid) {
+          Serial.printf("  候補%d(%s): 検出 RSSI=%ddBm\n", c + 1, wifiCredentials[c].ssid, WiFi.RSSI(i));
+          found = true;
+          break;
+        }
+      }
+      wifiCandidateVisible[c] = found;
+      if (!found) {
+        Serial.printf("  候補%d(%s): 圏外\n", c + 1, wifiCredentials[c].ssid);
+      }
+    }
     WiFi.scanDelete();
     time(&wifiScannedAt);
-    Serial.printf("WiFiスキャン完了: %d APを検出\n", wifiApCount);
   }
 
+  // 接続処理中（初回接続・再接続とも）にスキャンを開始すると、STAの接続処理と
+  // 競合して接続がタイムアウトしやすくなることを実機で確認したため、
+  // 接続が確立している間のみスキャンする。
   bool intervalElapsed =
       (millis() - lastWifiScanStartMillis) >= (unsigned long)WIFI_SCAN_INTERVAL_SECONDS * 1000UL;
-  if (lastWifiScanStartMillis == 0 || intervalElapsed) {
+  if (WiFi.status() == WL_CONNECTED && (lastWifiScanStartMillis == 0 || intervalElapsed)) {
     WiFi.scanNetworks(true /* async */);
     lastWifiScanStartMillis = millis();
   }
@@ -456,7 +599,13 @@ void setup() {
   gpsSerial.begin(GPS_BAUD_RATE, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   Serial.println("GPS UART初期化完了");
 
+  // 初回スキャン完了前は可視性不明のため、いったん全候補を可視（フルタイムアウト）扱いにする
+  for (int c = 0; c < wifiCredentialCount; c++) wifiCandidateVisible[c] = true;
+
   WiFi.mode(WIFI_STA);
+  // WiFiモデムスリープが有効だとbegin()直後の認証フレーム送信が遅延し、
+  // 特定候補への接続試行がWL_IDLE_STATUSのまま進まなくなる不具合を実機で確認したため無効化する
+  WiFi.setSleep(false);
   while (WiFi.status() != WL_CONNECTED) {
     ensureWifiConnected();
     readGpsSerial();

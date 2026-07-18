@@ -4,6 +4,12 @@
 
 #pragma once
 
+// XIAO ESP32C3にはオンボードLEDが無く LED_BUILTIN が未定義のためビルドが通らない。
+// 未使用の空きピンを仮当てして状態表示LEDロジックのビルドを通す（C6では既に定義済みのため無効）。
+#ifndef LED_BUILTIN
+#define LED_BUILTIN D1
+#endif
+
 // このXIAO ESP32C6が接続するWi-Fi候補（優先順位順、先頭が最優先）。
 // 走行中は電波強度ではなく、この並び順どおりに上から接続を試みる
 // （例: 自宅Wi-Fiを最優先にし、圏外ならモバイルルーターへフォールバックする、等）。
@@ -13,7 +19,32 @@ WifiCredential wifiCredentials[] = {
 };
 
 // 1つの候補への接続を試みる最大時間（ミリ秒）。これを超えたら次の優先順位の候補へ移る
-#define WIFI_CONNECT_TIMEOUT_MS 8000
+// 一部のAP（PMF/WPA3関連の再試行と思われる）は接続完了まで20秒以上かかることが実機で
+// 確認されたため、8秒等の短い値では常にタイムアウトしてしまう
+#define WIFI_CONNECT_TIMEOUT_MS 30000
+
+// 再接続前スキャンで圏外と分かっている候補に対して使う短いタイムアウト（ミリ秒）。
+// 圏外と分かっている候補にまでWIFI_CONNECT_TIMEOUT_MSをフルに使うと1周が無駄に長くなるため
+#define WIFI_CONNECT_TIMEOUT_INVISIBLE_MS 3000
+
+// 再接続前スキャン自体を待つ最大時間（ミリ秒）。これを超えたら可視性判定を諦め、
+// 全候補をWIFI_CONNECT_TIMEOUT_MS（フルタイムアウト）で試す
+#define WIFI_PRE_RETRY_SCAN_TIMEOUT_MS 5000
+
+// 接続中のAPの電波強度(RSSI, dBm)がこの値以下になったら明示的に切断し、
+// 優先順位トップから再接続を試みる（弱い電波を掴んだまま居座り続けるのを防ぐ）。
+// 値は負数で、0に近いほど強い電波（例: -50=非常に強い, -70=実用的な下限目安, -90=ほぼ圏外）
+#define WIFI_RSSI_DISCONNECT_THRESHOLD_DBM (-80)
+
+// 接続中のRSSIを確認する間隔（秒）。短すぎると瞬間的な弱電波でも即切断してしまう
+#define WIFI_RSSI_CHECK_INTERVAL_SECONDS 15
+
+// どの候補にも接続できない状態がこの時間（ミリ秒）続いたら、WiFiドライバ自体を
+// 再初期化する（WiFi.mode(WIFI_OFF)→WIFI_STA）。圏外の候補が混ざった状態で
+// 接続試行を繰り返しているとESP-IDFのWiFiドライバが内部的に壊れ、電波が届く候補に
+// すら接続できなくなる不具合が実機で確認されているための保険。
+// WIFI_CONNECT_TIMEOUT_MS×候補数=1周の所要時間のため、2周分以上の余裕を持たせること
+#define WIFI_DRIVER_RESET_AFTER_MS (300UL * 1000UL)
 
 // APIサーバの待ち受けポート
 #define API_PORT 8080
