@@ -44,7 +44,9 @@ def _require_env(name: str) -> str:
 
 
 # 設定
-RASPI_GPS_URL = _require_env("RASPI_GPS_URL")           # 例: http://100.x.x.x:8080/gps
+RASPI_GPS_URL = _require_env("RASPI_GPS_URL")           # 例: http://100.x.x.x:8080/gps または Relayの/gps
+# Relay等、Bearer認証が必要なGPSソースを使う場合に設定する（未設定ならAuthorizationヘッダを付けない）
+GPS_SOURCE_AUTH_TOKEN = os.getenv("GPS_SOURCE_AUTH_TOKEN", "")
 SLACK_WEBHOOK_URL = _require_env("SLACK_WEBHOOK_URL")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
 NOTIFY_COOLDOWN_SECONDS = int(os.getenv("NOTIFY_COOLDOWN_SECONDS", str(30 * 60)))
@@ -59,6 +61,7 @@ _GEOLOCATION_URL = "https://www.googleapis.com/geolocation/v1/geolocate"
 class GpsResponse(NamedTuple):
     has_fix: bool
     gpsd_connected: bool
+    gps_serial_active: bool
     lat: float | None
     lon: float | None
     last_fix_at: str | None
@@ -76,14 +79,20 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def _fetch_gps() -> GpsResponse | None:
-    """ラズパイからGPS情報を取得する。接続失敗時はNoneを返す。"""
+    """GPSソース（ラズパイ、またはRelay経由のESP32）からGPS情報を取得する。接続失敗時はNoneを返す。"""
+    headers = {}
+    if GPS_SOURCE_AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {GPS_SOURCE_AUTH_TOKEN}"
     try:
-        resp = httpx.get(RASPI_GPS_URL, timeout=REQUEST_TIMEOUT_SECONDS)
+        resp = httpx.get(RASPI_GPS_URL, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
         resp.raise_for_status()
         data = resp.json()
         return GpsResponse(
             has_fix=data.get("has_fix", False),
             gpsd_connected=data.get("gpsd_connected", False),
+            # ラズパイ直結時はこのフィールドが無いため、gpsd_connectedのみで判断していた
+            # 従来の2段階判定を維持するためデフォルトTrue（Relay経由のESP32のみ3段階判定になる）
+            gps_serial_active=data.get("gps_serial_active", True),
             lat=data.get("lat"),
             lon=data.get("lon"),
             last_fix_at=data.get("last_fix_at"),
@@ -248,8 +257,11 @@ def _run_once(state: MonitorState) -> MonitorState:
             state.last_notified_lon = None
         return state
 
-    # GPS補足不可（ラズパイは生きている）
-    logger.warning("GPS補足不可 (gpsd_connected=%s)", gps.gpsd_connected)
+    # GPS補足不可（ラズパイ/ESP32は生きている）
+    logger.warning(
+        "GPS補足不可 (gpsd_connected=%s, gps_serial_active=%s)",
+        gps.gpsd_connected, gps.gps_serial_active,
+    )
     if state.last_known_lat is None:
         logger.warning("最終既知位置がないため通知をスキップします")
         state.is_alerting = True
@@ -257,7 +269,13 @@ def _run_once(state: MonitorState) -> MonitorState:
 
     should, reason = _should_notify(state, state.last_known_lat, state.last_known_lon)
     if should:
-        detail = "GPS信号が失われました" if gps.gpsd_connected else "gpsdとの接続が失われました"
+        # 3段階の切り分け: 機器オフライン / 機器は生きているがGPSモジュール無応答 / GPSはfix待ち
+        if not gps.gpsd_connected:
+            detail = "gpsdとの接続が失われました"
+        elif not gps.gps_serial_active:
+            detail = "GPSモジュールが応答していません（アンテナ未接続の可能性があります）"
+        else:
+            detail = "GPS信号が失われました"
         ok = send_alert(
             SLACK_WEBHOOK_URL,
             reason=f"{detail}（{reason}）",

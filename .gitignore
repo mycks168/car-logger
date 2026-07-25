@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 dist/
 *.egg-info/
+.coverage
 
 # uv
 .python-version
@@ -12,6 +13,9 @@ dist/
 # 環境変数（秘密情報を含むため必ずignore）
 .env
 .env.local
+
+# ESP32ファームウェアの設定ファイル（Wi-Fi認証情報を含むため必ずignore）
+esp32/gps_server/config.h
 
 # 監視状態ファイル（ランタイムデータ）
 server/data/

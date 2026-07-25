@@ -1,0 +1,104 @@
+// Wi-Fi・GPS・APIサーバの設定テンプレート。
+// このファイルを config.h という名前でコピーし、実際の値を入力してください。
+// config.h は .gitignore 対象のため、Wi-Fiパスワードがコミットされることはありません。
+
+#pragma once
+
+// XIAO ESP32C3にはオンボードLEDが無く LED_BUILTIN が未定義のためビルドが通らない。
+// 未使用の空きピンを仮当てして状態表示LEDロジックのビルドを通す（C6では既に定義済みのため無効）。
+#ifndef LED_BUILTIN
+#define LED_BUILTIN D1
+#endif
+
+// このXIAO ESP32C6が接続するWi-Fi候補（優先順位順、先頭が最優先）。
+// 走行中は電波強度ではなく、この並び順どおりに上から接続を試みる
+// （例: 自宅Wi-Fiを最優先にし、圏外ならモバイルルーターへフォールバックする、等）。
+WifiCredential wifiCredentials[] = {
+  {"home-ssid",           "home-password"},
+  {"mobile-hotspot-ssid", "mobile-hotspot-password"},
+};
+
+// 1つの候補への接続を試みる最大時間（ミリ秒）。これを超えたら次の優先順位の候補へ移る
+// 一部のAP（PMF/WPA3関連の再試行と思われる）は接続完了まで20秒以上かかることが実機で
+// 確認されたため、8秒等の短い値では常にタイムアウトしてしまう
+#define WIFI_CONNECT_TIMEOUT_MS 30000
+
+// 再接続前スキャンで圏外と分かっている候補に対して使う短いタイムアウト（ミリ秒）。
+// 圏外と分かっている候補にまでWIFI_CONNECT_TIMEOUT_MSをフルに使うと1周が無駄に長くなるため
+#define WIFI_CONNECT_TIMEOUT_INVISIBLE_MS 3000
+
+// 再接続前スキャン自体を待つ最大時間（ミリ秒）。これを超えたら可視性判定を諦め、
+// 全候補をWIFI_CONNECT_TIMEOUT_MS（フルタイムアウト）で試す
+#define WIFI_PRE_RETRY_SCAN_TIMEOUT_MS 5000
+
+// 接続中のAPの電波強度(RSSI, dBm)がこの値以下になったら明示的に切断し、
+// 優先順位トップから再接続を試みる（弱い電波を掴んだまま居座り続けるのを防ぐ）。
+// 値は負数で、0に近いほど強い電波（例: -50=非常に強い, -70=実用的な下限目安, -90=ほぼ圏外）
+#define WIFI_RSSI_DISCONNECT_THRESHOLD_DBM (-80)
+
+// 接続中のRSSIを確認する間隔（秒）。短すぎると瞬間的な弱電波でも即切断してしまう
+#define WIFI_RSSI_CHECK_INTERVAL_SECONDS 15
+
+// どの候補にも接続できない状態がこの時間（ミリ秒）続いたら、WiFiドライバ自体を
+// 再初期化する（WiFi.mode(WIFI_OFF)→WIFI_STA）。圏外の候補が混ざった状態で
+// 接続試行を繰り返しているとESP-IDFのWiFiドライバが内部的に壊れ、電波が届く候補に
+// すら接続できなくなる不具合が実機で確認されているための保険。
+// WIFI_CONNECT_TIMEOUT_MS×候補数=1周の所要時間のため、2周分以上の余裕を持たせること
+#define WIFI_DRIVER_RESET_AFTER_MS (300UL * 1000UL)
+
+// APIサーバの待ち受けポート
+#define API_PORT 8080
+
+// GPS UART設定（ATGM336H: TXD→D7, RXD→D6, VCC→3V3, GND→GND）
+#define GPS_BAUD_RATE 9600
+#define GPS_RX_PIN D7   // GPSモジュールのTXDと接続
+#define GPS_TX_PIN D6   // GPSモジュールのRXDと接続
+
+// GPSキャッシュの有効期限（秒）。ラズパイ版main.pyのCACHE_MAX_AGE_SECONDSと同じデフォルト値
+#define CACHE_MAX_AGE_SECONDS (60 * 60 * 24)
+
+// 新規位置更新が何ミリ秒途絶えたらfix喪失とみなすか
+#define GPS_FIX_TIMEOUT_MS 5000
+
+// NMEA文の受信自体が何ミリ秒途絶えたらUARTリンク断とみなすか（gpsd_connected相当のフィールドに反映）
+#define GPS_SERIAL_TIMEOUT_MS 10000
+
+// WiFiスキャン間隔（秒）。サーバ側のGeolocation呼び出し間隔に合わせる
+#define WIFI_SCAN_INTERVAL_SECONDS 300
+#define MAX_WIFI_APS 40
+
+// NTPサーバ（last_fix_at等のタイムスタンプをUTCで発行するために使用）
+#define NTP_SERVER "ntp.nict.jp"
+#define NTP_GMT_OFFSET_SEC 0
+#define NTP_DAYLIGHT_OFFSET_SEC 0
+
+// mDNSホスト名。同一LAN内から http://<この名前>.local:8080/gps でアクセスできるようにする
+// （車載ラズパイ等、IPが変動する同一ネットワーク機器からのアクセス用）
+#define MDNS_HOSTNAME "car-logger"
+
+// 外部Relayサーバ（relay/）への位置情報Push設定。
+// XIAO ESP32C6はTailscaleに参加できず、車のWi-Fi環境も変わるため、
+// 内部サーバ(gps_monitor)から直接Pullする代わりに、Relayへ定期的にPushする。
+#define RELAY_PUSH_ENABLED true
+#define RELAY_HOST "your-relay-host.example.com"
+#define RELAY_PORT 443
+#define RELAY_PUSH_PATH "/push/location"
+#define RELAY_PUSH_AUTH_TOKEN "your-push-auth-token"   // relay/.env の PUSH_AUTH_TOKEN と一致させる
+#define RELAY_PUSH_INTERVAL_SECONDS 30
+
+// Relayへの接続・応答待ちを打ち切るまでの時間（ミリ秒）。
+// 未設定だとRelayに到達できない時にloop()全体が長時間ブロックされ、LED表示等も止まってしまう
+#define RELAY_PUSH_TIMEOUT_MS 5000
+
+// true: Relay証明書の検証をスキップする（動作確認用）。
+// Bearerトークンにより書き込み内容の認可自体は保護されるが、通信相手のなりすまし(MITM)は
+// 防げないため、本番運用ではfalseにしてRELAY_ROOT_CAに正しいCA証明書を設定すること。
+#define RELAY_USE_INSECURE_TLS true
+
+// RELAY_USE_INSECURE_TLSがfalseの場合に使用するRelayサーバのCA証明書(PEM形式)。
+// 取得例: openssl s_client -connect <RELAY_HOST>:443 -showcerts </dev/null 2>/dev/null
+const char RELAY_ROOT_CA[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+ここに取得したCA証明書のPEMを貼り付ける
+-----END CERTIFICATE-----
+)EOF";
